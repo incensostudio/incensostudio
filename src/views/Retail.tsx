@@ -1,4 +1,5 @@
 import { useStore } from '../store/useStore'
+import { useIsMobile } from '../lib/useIsMobile'
 import { retailShelf, outsideOrders, orderSteps } from '../data/fixtures'
 import { money } from '../lib/logic'
 import { View, Chip } from '../components/ui'
@@ -9,6 +10,7 @@ const retailNote = 'Every one of these deducts from the same shelf the staff sel
 
 export function Retail() {
   const s = useStore()
+  const mobile = useIsMobile()
   const sold = s.retailSold || {}
   const rows = retailShelf.map((r) => {
     const extra = sold[r.n] || 0
@@ -30,7 +32,7 @@ export function Retail() {
 
   return (
     <View>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 356px', gap: 12, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1fr 356px', gap: 12, alignItems: 'start' }}>
         <div style={{ background: '#FEFEF1', border: '1px solid rgba(0,0,0,.12)', borderRadius: 12, padding: '14px 16px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1.6fr .6fr .6fr .6fr .7fr 1.1fr' }}>
             {['Product', 'Price', 'Margin', 'Shelf', 'Sold MTD', 'Where it sold'].map((h) => (

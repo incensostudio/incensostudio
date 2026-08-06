@@ -1,4 +1,5 @@
 import { useStore } from '../store/useStore'
+import { useIsMobile } from '../lib/useIsMobile'
 import { money } from '../lib/logic'
 import { View } from '../components/ui'
 
@@ -13,6 +14,7 @@ const th: React.CSSProperties = { fontFamily: "'Geist Mono',monospace", fontSize
 
 export function Clients() {
   const s = useStore()
+  const mobile = useIsMobile()
   const q = (s.clientQ || '').toLowerCase()
   const rows = s.allClients().filter((c) => !q || (c.name + ' ' + c.phone + ' ' + c.tier).toLowerCase().indexOf(q) >= 0)
   const count = q
@@ -23,7 +25,7 @@ export function Clients() {
 
   return (
     <View>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 316px', gap: 12, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1fr 316px', gap: 12, alignItems: 'start' }}>
         <div style={{ background: '#FEFEF1', border: '1px solid rgba(0,0,0,.12)', borderRadius: 12, padding: '12px 16px 16px' }}>
           <input value={s.clientQ || ''} onChange={(e) => s.patch({ clientQ: e.target.value })} placeholder="Search by name, number or tier" style={{ width: '100%', background: '#fdfaf0', border: '1px solid rgba(0,0,0,.16)', borderRadius: 9, padding: '9px 12px', fontSize: 12.5, marginBottom: 8 }} />
           <div style={{ display: 'grid', gridTemplateColumns: '1.5fr .6fr .5fr .7fr .9fr' }}>

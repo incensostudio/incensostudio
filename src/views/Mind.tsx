@@ -1,4 +1,5 @@
 import { useStore } from '../store/useStore'
+import { useIsMobile } from '../lib/useIsMobile'
 import { decisions } from '../data/fixtures'
 import { View } from '../components/ui'
 import { AskSquare } from '../components/icons'
@@ -12,6 +13,7 @@ const mindStats = [
 
 export function Mind() {
   const s = useStore()
+  const mobile = useIsMobile()
   const laterList = s.mindLater || []
   const doneList = s.mindDone || []
   const open = decisions.filter((d) => laterList.indexOf(d.title) < 0)
@@ -35,7 +37,7 @@ export function Mind() {
           <span style={{ fontFamily: "'Geist Mono',monospace", fontSize: 9, letterSpacing: '.16em', textTransform: 'uppercase', color: 'rgba(254,254,241,.6)' }}>Incenso Mind</span>
         </div>
         <div style={{ fontFamily: "'ALT Gumbo',serif", fontSize: 26, lineHeight: 1.35, maxWidth: 760, paddingTop: 12 }}>{header}</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 0, marginTop: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr 1fr' : 'repeat(4,1fr)', gap: 0, marginTop: 20 }}>
           {mindStats.map((m, i) => (
             <div key={m.label} style={{ borderTop: '1px solid rgba(254,254,241,.2)', paddingTop: 12, paddingLeft: i ? 16 : 0 }}>
               <div style={{ fontFamily: "'Geist Mono',monospace", fontSize: 8, letterSpacing: '.14em', textTransform: 'uppercase', color: 'rgba(254,254,241,.5)' }}>{m.label}</div>
@@ -58,7 +60,7 @@ export function Mind() {
           <div style={{ fontSize: 12, color: 'rgba(0,0,0,.5)', paddingTop: 5 }}>I am still reading the numbers. Something will surface when it is worth your attention.</div>
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 11, marginTop: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : 'repeat(2,1fr)', gap: 11, marginTop: 12 }}>
           {open.map((d) => {
             const done = doneList.indexOf(d.title) >= 0
             return (

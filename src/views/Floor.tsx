@@ -1,4 +1,5 @@
 import { useStore } from '../store/useStore'
+import { useIsMobile } from '../lib/useIsMobile'
 import { stages } from '../data/fixtures'
 import { chan as chanColors } from '../data/fixtures'
 import type { Role, StageKey } from '../data/types'
@@ -24,6 +25,7 @@ const flags: Record<string, string> = {
 
 export function Floor() {
   const s = useStore()
+  const mobile = useIsMobile()
   const today = s.apts.filter((a) => (a.day || 0) === 0)
   const active = today.filter((a) => a.stage !== 'cancelled')
   const cancelled = today.filter((a) => a.stage === 'cancelled').length
@@ -49,13 +51,13 @@ export function Floor() {
 
   return (
     <View>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, paddingBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr 1fr' : 'repeat(4,1fr)', gap: 10, paddingBottom: 16 }}>
         {statCards.map((c) => (
           <StatCard key={c.label} {...c} />
         ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,minmax(0,1fr))', gap: 10, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : 'repeat(5,minmax(0,1fr))', gap: 10, alignItems: 'start' }}>
         {stages.map((stg) => {
           const cards = active.filter((a) => a.stage === (stg.key as StageKey))
           return (

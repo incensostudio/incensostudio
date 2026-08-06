@@ -1,4 +1,5 @@
 import { useStore } from '../store/useStore'
+import { useIsMobile } from '../lib/useIsMobile'
 import { msgTypes } from '../data/fixtures'
 import { View, StatCard } from '../components/ui'
 
@@ -14,6 +15,7 @@ const filters = ['all', 'reminder', 'rebook', 'winback', 'care', 'thanks', 'birt
 
 export function Queue() {
   const s = useStore()
+  const mobile = useIsMobile()
   const pend = (s.msgs || []).filter((m) => m.status === 'pending').length
   const sentToday = (s.msgs || []).filter((m) => m.status === 'sent').length
   const stats = [
@@ -33,7 +35,7 @@ export function Queue() {
 
   return (
     <View>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, paddingBottom: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr 1fr' : 'repeat(4,1fr)', gap: 10, paddingBottom: 12 }}>
         {stats.map((c) => <StatCard key={c.label} {...c} />)}
       </div>
 
@@ -83,7 +85,7 @@ export function Queue() {
             const statusBg = sent ? '#e2ebdd' : skipped ? '#eae6de' : '#f5efe0'
             const statusLabel = sent ? 'Sent' : skipped ? 'Skipped' : 'Waiting for you'
             return (
-              <div key={m.id} style={{ background: '#FEFEF1', border: '1px solid rgba(0,0,0,.12)', borderRadius: 12, display: 'grid', gridTemplateColumns: '1fr 292px', gap: 18, padding: '14px 16px 15px' }}>
+              <div key={m.id} style={{ background: '#FEFEF1', border: '1px solid rgba(0,0,0,.12)', borderRadius: 12, display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1fr 292px', gap: 18, padding: '14px 16px 15px' }}>
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ fontFamily: "'Geist Mono',monospace", fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', color: t[1] }}>{t[0]}</span>

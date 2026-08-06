@@ -1,4 +1,5 @@
 import { useStore } from '../store/useStore'
+import { useAuth } from '../os/auth'
 import { threads, decisions } from '../data/fixtures'
 import type { Role, ViewKey } from '../data/types'
 import { Wordmark, NavIcon } from './icons'
@@ -25,9 +26,14 @@ const roleScopes: Record<Role, string> = {
   staff: 'Your own column, your clients, your product log and your performance.',
 }
 
-export function Sidebar() {
+export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   const s = useStore()
+  const signOut = useAuth((a) => a.signOut)
   const allowed = s.viewsFor(s.role)
+  const go = (v: ViewKey) => {
+    s.go(v)
+    onNavigate?.()
+  }
 
   const floorOpen = s.apts.filter((a) => (a.day || 0) === 0 && a.stage !== 'paid' && a.stage !== 'cancelled').length
   const unreadThreads = threads.filter((t) => t.unread && (s.readThreads || []).indexOf(t.id) < 0).length
@@ -69,7 +75,7 @@ export function Sidebar() {
             return (
               <button
                 key={it.key}
-                onClick={() => s.go(it.key)}
+                onClick={() => go(it.key)}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '8px 12px', border: 0, borderRadius: 7, cursor: 'pointer', fontFamily: "'Geist Mono',monospace", fontSize: 10.5, letterSpacing: '.12em', textTransform: 'uppercase', background: on ? '#000' : 'transparent', color: on ? '#FEFEF1' : 'rgba(0,0,0,.72)' }}
               >
                 <NavIcon view={it.key} />
@@ -102,12 +108,20 @@ export function Sidebar() {
           })}
         </div>
         <div style={{ fontSize: 10.5, lineHeight: 1.45, color: 'rgba(0,0,0,.5)', paddingTop: 9 }}>{roleScopes[s.role]}</div>
-        <button
-          onClick={() => s.resetDemo()}
-          style={{ border: 0, background: 'none', fontFamily: "'Geist Mono',monospace", fontSize: 8.5, letterSpacing: '.14em', textTransform: 'uppercase', color: s.resetArm ? '#b4462f' : 'rgba(0,0,0,.35)', cursor: 'pointer', padding: '10px 0 2px' }}
-        >
-          {s.resetArm ? 'Tap again to wipe it all' : 'Reset demo data'}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingTop: 10 }}>
+          <button
+            onClick={() => s.resetDemo()}
+            style={{ border: 0, background: 'none', fontFamily: "'Geist Mono',monospace", fontSize: 8.5, letterSpacing: '.14em', textTransform: 'uppercase', color: s.resetArm ? '#b4462f' : 'rgba(0,0,0,.35)', cursor: 'pointer', padding: '2px 0' }}
+          >
+            {s.resetArm ? 'Tap again to wipe it all' : 'Reset demo data'}
+          </button>
+          <button
+            onClick={() => { onNavigate?.(); signOut() }}
+            style={{ marginLeft: 'auto', border: 0, background: 'none', fontFamily: "'Geist Mono',monospace", fontSize: 8.5, letterSpacing: '.14em', textTransform: 'uppercase', color: 'rgba(0,0,0,.35)', cursor: 'pointer', padding: '2px 0' }}
+          >
+            Sign out
+          </button>
+        </div>
       </div>
     </aside>
   )

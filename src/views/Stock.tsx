@@ -1,4 +1,5 @@
 import { useStore } from '../store/useStore'
+import { useIsMobile } from '../lib/useIsMobile'
 import { stockRaw, variance } from '../data/fixtures'
 import { money, st } from '../lib/logic'
 import { View, Disc } from '../components/ui'
@@ -13,6 +14,7 @@ const th: React.CSSProperties = { fontFamily: "'Geist Mono',monospace", fontSize
 
 export function Stock() {
   const s = useStore()
+  const mobile = useIsMobile()
   const usedMap = s.stockUsed || {}
   const orderedList = s.ordered || []
 
@@ -56,7 +58,7 @@ export function Stock() {
 
   return (
     <View>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 356px', gap: 12, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1fr 356px', gap: 12, alignItems: 'start' }}>
         <div style={{ background: '#FEFEF1', border: '1px solid rgba(0,0,0,.12)', borderRadius: 12, padding: '14px 16px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1.5fr .8fr .8fr 1fr .7fr', alignItems: 'end' }}>
             {['Product', 'On hand', 'Per client', 'Clients left', 'Status'].map((h) => (

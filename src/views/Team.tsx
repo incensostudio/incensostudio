@@ -2,18 +2,21 @@ import { useStore } from '../store/useStore'
 import { teamPerf, perms } from '../data/fixtures'
 import { money, st } from '../lib/logic'
 import { View, Disc } from '../components/ui'
+import { useIsMobile } from '../lib/useIsMobile'
 
 const th: React.CSSProperties = { fontFamily: "'Geist Mono',monospace", fontSize: 8.5, letterSpacing: '.14em', textTransform: 'uppercase', color: 'rgba(0,0,0,.38)', textAlign: 'left', padding: '0 4px 8px', fontWeight: 400 }
 
 export function Team() {
   const s = useStore()
+  const mobile = useIsMobile()
   const rows = teamPerf.map((r) => ({ ...r, stf: st(r.id) }))
   const cell = (v: boolean | string) => (v === true ? 'Yes' : v || 'No')
   const fg = (v: boolean | string) => (v ? '#000' : 'rgba(0,0,0,.28)')
 
   return (
     <View>
-      <div style={{ background: '#FEFEF1', border: '1px solid rgba(0,0,0,.12)', borderRadius: 12, padding: '14px 16px' }}>
+      <div style={{ background: '#FEFEF1', border: '1px solid rgba(0,0,0,.12)', borderRadius: 12, padding: '14px 16px', overflowX: 'auto' }}>
+        <div style={{ minWidth: mobile ? 720 : undefined }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1.5fr .8fr .9fr .8fr .7fr 1.9fr' }}>
           {['Staff', 'Revenue', 'Utilisation', 'Product eff.', 'Retail', 'What I would say to them'].map((h) => (
             <div key={h} style={th}>{h}</div>
@@ -40,11 +43,12 @@ export function Team() {
             <div style={{ fontSize: 11.5, lineHeight: 1.45, color: 'rgba(0,0,0,.65)' }}>{r.note}</div>
           </button>
         ))}
+        </div>
       </div>
 
-      <div style={{ background: '#FEFEF1', border: '1px solid rgba(0,0,0,.12)', borderRadius: 12, padding: '14px 16px', marginTop: 12 }}>
+      <div style={{ background: '#FEFEF1', border: '1px solid rgba(0,0,0,.12)', borderRadius: 12, padding: '14px 16px', marginTop: 12, overflowX: 'auto' }}>
         <div style={{ fontFamily: "'Geist Mono',monospace", fontSize: 8.5, letterSpacing: '.14em', textTransform: 'uppercase', color: 'rgba(0,0,0,.42)', paddingBottom: 8 }}>Who can do what</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1.4fr' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1.4fr', minWidth: mobile ? 560 : undefined }}>
           {['Capability', 'Owner', 'Manager', 'Reception', 'Staff'].map((h) => (
             <div key={h} style={th}>{h}</div>
           ))}

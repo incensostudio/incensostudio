@@ -78,6 +78,16 @@ a:hover {
   border-radius: 5px;
 }
 
+/* Public site: swap the desktop nav for a burger on small screens. */
+@media (max-width: 760px) {
+  .site-desktop-nav {
+    display: none !important;
+  }
+  .site-burger {
+    display: grid !important;
+  }
+}
+
 @keyframes drawerIn {
   from {
     transform: translateX(28px);

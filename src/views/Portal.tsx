@@ -1,9 +1,11 @@
 import { useStore } from '../store/useStore'
+import { useIsMobile } from '../lib/useIsMobile'
 import { clientRebook, clientTier, money, st } from '../lib/logic'
 import { View } from '../components/ui'
 
 export function Portal() {
   const s = useStore()
+  const mobile = useIsMobile()
   const paidToday = (s.apts || []).filter((a) => (a.day || 0) === 0 && a.stage === 'paid')
   const pa = paidToday[paidToday.length - 1]
   const pc = pa ? s.allClients().find((x) => x.id === pa.cid) : null
@@ -16,7 +18,7 @@ export function Portal() {
 
   return (
     <View>
-      <div style={{ display: 'grid', gridTemplateColumns: '308px 1fr', gap: 16, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : '308px 1fr', gap: 16, alignItems: 'start' }}>
         {/* Phone mock */}
         <div style={{ background: '#000', borderRadius: 34, padding: 11 }}>
           <div style={{ background: '#FEFEF1', borderRadius: 26, overflow: 'hidden', padding: '14px 16px 20px' }}>

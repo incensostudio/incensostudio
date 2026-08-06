@@ -3,6 +3,7 @@ import { svcCat, prodCat, retailCat } from '../../data/fixtures'
 import { elapsedFor, fileNote, lineTotal, money, nextVisitFor, st } from '../../lib/logic'
 import type { Line } from '../../data/types'
 import { Drawer, DrawerClose } from './Drawer'
+import { useIsMobile } from '../../lib/useIsMobile'
 
 const tagFor: Record<string, [string, string, string]> = {
   service: ['#e8e4dc', '#000', 'Service'],
@@ -12,6 +13,7 @@ const tagFor: Record<string, [string, string, string]> = {
 
 export function CheckoutDrawer() {
   const s = useStore()
+  const mobile = useIsMobile()
   const a = s.apts.find((x) => x.id === s.activeId)
   const close = () => s.patch({ drawer: null, activeId: null, edit: null })
   if (!a || !s.edit) return null
@@ -49,7 +51,7 @@ export function CheckoutDrawer() {
 
   return (
     <Drawer width="min(1020px,94vw)" onClose={close}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 316px', minHeight: '100vh' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1fr 316px', minHeight: '100dvh' }}>
         {/* Left pane */}
         <div style={{ padding: '22px 24px 28px' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start' }}>
@@ -116,7 +118,7 @@ export function CheckoutDrawer() {
           {menu.length === 0 ? (
             <div style={{ fontSize: 11.5, color: 'rgba(0,0,0,.5)' }}>Nothing in the menu matches that.</div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: mobile ? 'repeat(2,1fr)' : 'repeat(3,1fr)', gap: 6 }}>
               {menu.map((x) => (
                 <button key={x.name} onClick={() => addLine({ t: 'service', name: x.name, base: x.base, price: x.base, qty: 1, from: !!x.from })} style={addBtn('transparent')}>
                   <div>{x.name}</div>
@@ -130,7 +132,7 @@ export function CheckoutDrawer() {
           <div style={{ padding: '18px 0 8px' }}>
             <span style={heading}>Products consumed — deducted from stock at millilitre level</span>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: mobile ? 'repeat(2,1fr)' : 'repeat(3,1fr)', gap: 6 }}>
             {prodCat.map((p) => (
               <button key={p.name} onClick={() => addLine({ t: 'product', name: p.name, ml: p.ml, cost: p.cost, qty: 1 })} style={addBtn('#f3ead6')}>
                 <div>{p.name}</div>
@@ -143,7 +145,7 @@ export function CheckoutDrawer() {
           <div style={{ padding: '18px 0 8px' }}>
             <span style={heading}>{verifying ? 'Retail she is taking home — most of it is rung up here' : 'Retail she is taking home'}</span>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: mobile ? 'repeat(2,1fr)' : 'repeat(3,1fr)', gap: 6 }}>
             {retailCat.map((p) => (
               <button key={p.name} onClick={() => addLine({ t: 'retail', name: p.name, base: p.price, price: p.price, qty: 1 })} style={addBtn('#e6e2f2')}>
                 <div>{p.name}</div>
@@ -169,7 +171,7 @@ export function CheckoutDrawer() {
         </div>
 
         {/* Right rail */}
-        <div style={{ background: '#f7f2e4', borderLeft: '1px solid rgba(0,0,0,.12)', padding: '22px 22px 26px', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ background: '#f7f2e4', borderLeft: mobile ? 'none' : '1px solid rgba(0,0,0,.12)', borderTop: mobile ? '1px solid rgba(0,0,0,.12)' : 'none', padding: '22px 22px 26px', display: 'flex', flexDirection: 'column' }}>
           {totals.map((t) => (
             <div key={t.k} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: 12 }}>
               <span style={{ color: 'rgba(0,0,0,.6)' }}>{t.k}</span>

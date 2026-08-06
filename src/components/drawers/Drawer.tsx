@@ -1,13 +1,16 @@
 import type { ReactNode } from 'react'
 import { CloseIcon } from '../icons'
+import { useIsMobile } from '../../lib/useIsMobile'
 
-/** Right-hand drawer with backdrop. Backdrop click closes. */
+/** Right-hand drawer with backdrop. Backdrop click closes. Full-width on mobile. */
 export function Drawer({ width, onClose, children, z = 61 }: { width: number | string; onClose: () => void; children: ReactNode; z?: number }) {
+  const mobile = useIsMobile()
+  const w = mobile ? '100vw' : typeof width === 'number' ? `min(${width}px, 100vw)` : width
   return (
     <>
       <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.28)', zIndex: z - 1 }} />
       <div
-        style={{ position: 'fixed', top: 0, right: 0, height: '100vh', width, background: '#FEFEF1', zIndex: z, overflowY: 'auto', animation: 'drawerIn .22s ease', boxShadow: '-8px 0 40px rgba(0,0,0,.14)' }}
+        style={{ position: 'fixed', top: 0, right: 0, height: '100dvh', width: w, maxWidth: '100vw', background: '#FEFEF1', zIndex: z, overflowY: 'auto', animation: 'drawerIn .22s ease', boxShadow: '-8px 0 40px rgba(0,0,0,.14)' }}
       >
         {children}
       </div>

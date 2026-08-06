@@ -1,4 +1,5 @@
 import { useStore } from '../store/useStore'
+import { useIsMobile } from '../lib/useIsMobile'
 import { threads, chan as chanColors } from '../data/fixtures'
 import { srcFor } from '../lib/logic'
 import { View, Chip } from '../components/ui'
@@ -8,6 +9,7 @@ const intents: Record<string, string> = { booking: 'Turn into a booking', order:
 
 export function Inbox() {
   const s = useStore()
+  const mobile = useIsMobile()
   const readIds = s.readThreads || []
   const inFilter = s.inboxFilter || 'all'
   const list = threads.filter((t) => inFilter === 'all' || t.ch === inFilter)
@@ -44,7 +46,7 @@ export function Inbox() {
         })}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '342px 1fr', gap: 12, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : '342px 1fr', gap: 12, alignItems: 'start' }}>
         <div style={{ background: '#FEFEF1', border: '1px solid rgba(0,0,0,.12)', borderRadius: 12, padding: 8 }}>
           {list.length === 0 && <div style={{ padding: '26px 14px', fontSize: 12.5, color: 'rgba(0,0,0,.5)', lineHeight: 1.5 }}>Nothing on this channel today. Everything that comes in — DMs, WhatsApp, missed calls, live chat, reviews — lands in this one list.</div>}
           {list.map((t) => {

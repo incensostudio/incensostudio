@@ -1,7 +1,22 @@
-# Incenso OS
+# Incenso Studio
+
+Two surfaces in one Vite + React + TypeScript app, sharing one brand system:
+
+- **`/`** — the public **Incenso Studio** website: a mobile-first client site
+  with the service menu, the team, the studio's ethos, hours/location and a
+  booking request form.
+- **`/os`** — **Incenso OS**, the back-of-house operating system, behind a
+  staff sign-in. Fully responsive down to phone width.
+
+Routing is handled by `react-router-dom`; a `public/_redirects` gives the SPA
+fallback for static hosts.
+
+---
+
+## Incenso OS
 
 A back-of-house operating system for a hair, nails, makeup and brow salon —
-rebuilt from the design handoff as a real Vite + React + TypeScript app.
+rebuilt from the design handoff.
 
 The organising idea: **every service performed and every millilitre drawn is
 captured at checkout, and that single act updates the client's file, the stock
@@ -44,17 +59,25 @@ inside the checkout drawer — not just documented.
 
 ```
 src/
+  App.tsx      router: public Site at /, OsApp at /os
+  site/        the public Incenso Studio website (mobile-first)
+  os/          OsApp shell, staff-login gate, demo auth
   data/        seed data + model types (ported verbatim from the prototype)
   lib/         pure domain logic (scheduling, service matching, money/time,
                the separate staff- vs client-facing copy rules), Supabase
-               client, persistence layer, Ask Incenso answers
+               client, persistence layer, Ask Incenso answers, useIsMobile
   store/       Zustand store — one flat state object mirroring the prototype's
                state class, with the bump/advance stage machine and the
                checkout write-path (stock + retail ledgers)
-  components/  shell (sidebar, header, toast), notification panel, overlays,
+  components/  OS shell (sidebar, header, toast), notification panel, overlays,
                drawers/
-  views/       the eleven screens
+  views/       the eleven OS screens
 ```
+
+Both surfaces are responsive. The OS is a reception-desk tool first, so on
+phones the sidebar becomes a slide-in drawer, wide boards stack or scroll, and
+drawers go full-width — usable on mobile without pretending the five-column
+floor board was designed for it.
 
 State is split the way the design specifies: the **persisted** slice
 (appointments, notifications, queued messages, desk-created clients, the two

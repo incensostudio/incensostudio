@@ -1,4 +1,5 @@
 import { View } from '../components/ui'
+import { useIsMobile } from '../lib/useIsMobile'
 
 const finKpis = [
   { label: 'Revenue MTD', value: '$38,410', note: '+11% vs June' },
@@ -30,9 +31,10 @@ const panel: React.CSSProperties = { background: '#FEFEF1', border: '1px solid r
 const panelHead: React.CSSProperties = { fontFamily: "'Geist Mono',monospace", fontSize: 8.5, letterSpacing: '.14em', textTransform: 'uppercase', color: 'rgba(0,0,0,.42)', paddingBottom: 10 }
 
 export function Finance() {
+  const mobile = useIsMobile()
   return (
     <View>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 10, paddingBottom: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr 1fr' : 'repeat(5,1fr)', gap: 10, paddingBottom: 12 }}>
         {finKpis.map((k) => (
           <div key={k.label} style={{ ...panel, padding: '13px 14px' }}>
             <div style={{ fontFamily: "'Geist Mono',monospace", fontSize: 8.5, letterSpacing: '.14em', textTransform: 'uppercase', color: 'rgba(0,0,0,.42)' }}>{k.label}</div>
@@ -42,7 +44,7 @@ export function Finance() {
         ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr .8fr .9fr', gap: 11, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1.2fr .8fr .9fr', gap: 11, alignItems: 'start' }}>
         <div style={panel}>
           <div style={panelHead}>Where the money comes from</div>
           {finMix.map((m) => (
