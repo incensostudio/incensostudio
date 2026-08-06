@@ -1,0 +1,40 @@
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: ['./index.html', './src/**/*.{ts,tsx}'],
+  theme: {
+    extend: {
+      colors: {
+        desk: '#e5dcc9',
+        paper: '#FEFEF1',
+        'paper-sunken': '#fdfaf0',
+        sand: '#f7f2e4',
+        'sand-deep': '#f3ead6',
+        ink: '#000000',
+        terracotta: '#b4462f',
+        'terracotta-deep': '#8f2c18',
+        'terracotta-tint': '#f4e0da',
+        salmon: '#e59a8a',
+        olive: '#6b7a4a',
+        'olive-light': '#9fc08a',
+        'olive-tint': '#e2ebdd',
+        plum: '#7a3b5f',
+        'plum-tint': '#f6e2ea',
+        navy: '#3b4a7a',
+        'navy-tint': '#e6e2f2',
+        amber: '#b07d1a',
+        'amber-light': '#e5c07a',
+        'amber-tint': '#f5eddb',
+        bronze: '#8a5a20',
+        'bronze-tint': '#f2e6d9',
+        forest: '#3f5a42',
+        'forest-tint': '#dfe9e0',
+      },
+      fontFamily: {
+        display: ['"ALT Gumbo"', 'Georgia', 'serif'],
+        sans: ['Geist', '"Helvetica Neue"', 'Helvetica', 'Arial', 'sans-serif'],
+        mono: ['"Geist Mono"', 'ui-monospace', 'monospace'],
+      },
+    },
+  },
+  plugins: [],
+}
