@@ -114,6 +114,28 @@ The schema is a single JSON-document table (`os_state`) that mirrors the
 client's atomic write model. A production build would normalise it into real
 tables (appointments, clients, ledgers) behind per-salon row-level security.
 
+## Deploying
+
+The repo ships turnkey config for both hosts:
+
+- **Vercel** — `vercel.json` (Vite framework, `dist` output, SPA rewrite).
+  Import the repo; no settings needed.
+- **Netlify** — `netlify.toml` + `public/_redirects` (build `pnpm build`,
+  publish `dist`, SPA redirect). Connect the repo; no settings needed.
+
+Both build to a static SPA and serve `index.html` for every route, so `/os`
+works on a hard refresh.
+
+To turn on Supabase sync in production, add these environment variables in the
+host's dashboard (they're read at build time):
+
+```
+VITE_SUPABASE_URL=https://<project>.supabase.co
+VITE_SUPABASE_ANON_KEY=<publishable key>
+```
+
+Without them the deployed site runs on `localStorage`, exactly like local dev.
+
 ## Fonts
 
 ALT Gumbo (display), Geist and Geist Mono are self-hosted from

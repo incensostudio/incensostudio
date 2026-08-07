@@ -1,0 +1,16 @@
+# Netlify deploy config. The SPA redirect also lives in public/_redirects;
+# this file adds the build command and publish directory.
+[build]
+  command = "pnpm build"
+  publish = "dist"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Supabase sync is optional. To enable it on the deployed site, set these in the
+# host's environment (Netlify: Site settings → Environment variables). Without
+# them the app runs on localStorage.
+#   VITE_SUPABASE_URL
+#   VITE_SUPABASE_ANON_KEY
