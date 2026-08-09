@@ -55,6 +55,9 @@ export interface Client {
   instagram: string
   tiktok: string
   note: string
+  visits?: number
+  spend?: number
+  last_visit?: string | null
 }
 
 export type ExtraKind = 'service' | 'product'

@@ -5,7 +5,7 @@ import { useNarrow } from '../lib/useNarrow'
 import type { BookingSeed } from '../App'
 import type { Appointment, Staff } from '../lib/types'
 import {
-  addDays, blockSkin, dayLabelLong, durLabel, money, offsetOf, ticketTotal,
+  addDays, blockSkin, dayName, durLabel, money, offsetOf, ticketTotal,
   toMin, todayStr,
 } from '../lib/format'
 
@@ -74,7 +74,7 @@ function Column({
   const colH = (CAL.end - CAL.start) * CAL.px
 
   return (
-    <div style={{ flex: narrow ? '1 1 100%' : `1 1 0`, minWidth: narrow ? '100%' : 150, display: 'flex', flexDirection: 'column' }}>
+    <div style={{ flex: '1 1 0', minWidth: narrow ? 0 : 150, display: 'flex', flexDirection: 'column' }}>
       {/* sticky header */}
       <div style={{ position: 'sticky', top: 0, zIndex: 2, background: C.cream, display: 'flex', alignItems: 'center', gap: 8, padding: '6px 6px 8px' }}>
         <span style={{ width: 20, height: 20, borderRadius: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F.mono, fontSize: 7.5, color: C.cream, background: off ? 'rgba(0,0,0,.3)' : st.colour }}>{st.initials}</span>
@@ -82,7 +82,7 @@ function Column({
           <div style={{ fontSize: 12, color: off ? C.mut45 : C.ink }}>{st.name}</div>
           <div style={{ fontFamily: F.mono, fontSize: 8, letterSpacing: '.1em', textTransform: 'uppercase', color: C.mut42 }}>{load}</div>
         </div>
-        <button onClick={onToggleOff} data-tap="icon" style={{ marginLeft: 'auto', border: `1px solid ${C.hair14}`, background: off ? C.ink : C.cream, color: off ? C.cream : C.mut45, borderRadius: 999, padding: '3px 8px', cursor: 'pointer', fontFamily: F.mono, fontSize: 8.5, letterSpacing: '.1em', textTransform: 'uppercase' }}>Off</button>
+        <button onClick={onToggleOff} data-tap="icon" title={off ? 'Clear day off' : 'Mark day off'} style={{ marginLeft: 'auto', border: `1px solid ${off ? '#000' : C.hair14}`, background: off ? C.ink : C.cream, color: off ? C.cream : C.mut45, borderRadius: 999, padding: '5px 12px', cursor: 'pointer', fontFamily: F.mono, fontSize: 8.5, letterSpacing: '.1em', textTransform: 'uppercase' }}>{off ? 'Off' : 'Off?'}</button>
       </div>
 
       {/* body */}
@@ -172,37 +172,37 @@ export function Book({ viewedDate, setViewedDate, openTicket, openBooking }: Pro
 
   return (
     <div>
-      {/* Day switcher */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '2px 0 14px' }}>
-        <button onClick={() => !isToday && setViewedDate(addDays(viewedDate, -1))} disabled={isToday}
-          style={{ border: 0, background: 'none', cursor: isToday ? 'default' : 'pointer', fontFamily: F.mono, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: C.ink, opacity: isToday ? 0.35 : 1 }}>← Prev</button>
-        <div style={{ fontFamily: F.display, fontSize: 19 }}>{dayLabelLong(viewedDate)}</div>
-        <button onClick={() => setViewedDate(addDays(viewedDate, 1))}
-          style={{ border: 0, background: 'none', cursor: 'pointer', fontFamily: F.mono, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: C.ink }}>Next →</button>
-        {!isToday && (
-          <button onClick={() => setViewedDate(today)} style={{ border: 0, background: C.ink, color: C.cream, borderRadius: 999, padding: '6px 12px', cursor: 'pointer', fontFamily: F.mono, fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase' }}>Back to today</button>
-        )}
-        <div style={{ marginLeft: 'auto', fontFamily: F.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: C.mut45 }}>
-          {dayApts.length} {dayApts.length === 1 ? 'service' : 'services'} on the board
-        </div>
-      </div>
-
       {/* Stat cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: narrow ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap: 10, paddingBottom: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: narrow ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap: narrow ? 12 : 10, paddingBottom: 16 }}>
         <StatCard label="Appointments" value={String(dayApts.length)} note={stat.apptsNote} />
         <StatCard label="In the salon" value={String(arrived.length)} note="checked in now" />
         <StatCard label="Taken" value={money(taken)} note={`${paid.length} ${paid.length === 1 ? 'ticket' : 'tickets'} paid`} />
         <StatCard label="Expected" value={money(expected)} note="if the day finishes clean" />
       </div>
 
+      {/* Day switcher */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '2px 0 16px' }}>
+        <button onClick={() => !isToday && setViewedDate(addDays(viewedDate, -1))} disabled={isToday} data-tap="fixed"
+          style={{ border: `1px solid ${C.hair14}`, background: C.cream, borderRadius: 999, padding: '8px 14px', cursor: isToday ? 'default' : 'pointer', fontFamily: F.mono, fontSize: 9.5, letterSpacing: '.1em', textTransform: 'uppercase', color: C.ink, opacity: isToday ? 0.4 : 1 }}>← Prev</button>
+        <div style={{ fontFamily: F.display, fontSize: 20 }}>{dayName(viewedDate)}</div>
+        <button onClick={() => setViewedDate(addDays(viewedDate, 1))} data-tap="fixed"
+          style={{ border: `1px solid ${C.hair14}`, background: C.cream, borderRadius: 999, padding: '8px 14px', cursor: 'pointer', fontFamily: F.mono, fontSize: 9.5, letterSpacing: '.1em', textTransform: 'uppercase', color: C.ink }}>Next →</button>
+        {!isToday && (
+          <button onClick={() => setViewedDate(today)} style={{ border: 0, background: C.ink, color: C.cream, borderRadius: 999, padding: '8px 14px', cursor: 'pointer', fontFamily: F.mono, fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase' }}>Back to today</button>
+        )}
+        <div style={{ marginLeft: 'auto', fontFamily: F.mono, fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', color: C.mut45 }}>
+          {dayApts.length} {dayApts.length === 1 ? 'service' : 'services'} on the board
+        </div>
+      </div>
+
       {/* In the chair */}
       {isToday && chair.length > 0 && (
-        <div style={{ background: C.wheat, border: `1px solid ${C.hair14}`, borderRadius: 11, padding: '10px 13px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <div style={{ fontFamily: F.mono, fontSize: 8.5, letterSpacing: '.16em', textTransform: 'uppercase', color: C.mut45 }}>In the chair</div>
+        <div style={{ background: C.wheat, border: `1px solid ${C.hair14}`, borderRadius: 14, padding: narrow ? 16 : '12px 14px', marginBottom: 16, display: 'flex', alignItems: narrow ? 'stretch' : 'center', flexDirection: narrow ? 'column' : 'row', gap: narrow ? 8 : 10, flexWrap: 'wrap' }}>
+          <div style={{ fontFamily: F.mono, fontSize: 8.5, letterSpacing: '.16em', textTransform: 'uppercase', color: C.mut45, marginBottom: narrow ? 2 : 0 }}>In the chair</div>
           {chair.map((c) => (
-            <div key={c.name} style={{ display: 'flex', alignItems: 'center', gap: 6, background: C.cream, border: `1px solid ${C.hair14}`, borderRadius: 999, padding: '3px 3px 3px 12px' }}>
-              <span style={{ fontSize: 12 }}>{c.name}</span>
-              <button onClick={() => openTicket(c.name, today)} style={{ border: 0, background: C.ink, color: C.cream, borderRadius: 999, padding: '6px 11px', cursor: 'pointer', fontFamily: F.mono, fontSize: 9.5, letterSpacing: '.06em' }}>Take {money(c.due)}</button>
+            <div key={c.name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, background: C.cream, border: `1px solid ${C.hair14}`, borderRadius: 999, padding: '4px 4px 4px 16px', flex: narrow ? 'none' : '0 1 auto' }}>
+              <span style={{ fontSize: 13.5 }}>{c.name}</span>
+              <button onClick={() => openTicket(c.name, today)} style={{ border: 0, background: C.ink, color: C.cream, borderRadius: 999, padding: '8px 14px', cursor: 'pointer', fontFamily: F.mono, fontSize: 10, letterSpacing: '.06em', whiteSpace: 'nowrap' }}>Take {money(c.due)}</button>
             </div>
           ))}
         </div>

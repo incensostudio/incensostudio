@@ -135,7 +135,7 @@ export function App() {
               {narrow ? '+ New' : '+ New booking'}
             </button>
             {narrow && (
-              <button onClick={() => s.logout()} title="Sign out" style={{ border: `1px solid ${C.hair14}`, background: C.cream, borderRadius: 999, padding: '10px 12px', cursor: 'pointer', fontFamily: F.mono, fontSize: 10, color: C.mut45 }}>⎋</button>
+              <button onClick={() => s.logout()} title="Sign out" style={{ border: `1px solid ${C.hair14}`, background: C.cream, borderRadius: 999, padding: '11px 15px', cursor: 'pointer', fontFamily: F.mono, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: C.mut45 }}>Out</button>
             )}
           </div>
         </header>

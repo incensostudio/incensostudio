@@ -4,6 +4,7 @@ import type {
   Appointment, Client, DeskUser, LedgerDay, Method, Product, Service, Staff,
 } from './lib/types'
 import { dayMeta, staffFor, toMin, toTime } from './lib/format'
+import { isDemo, mockAppointments, mockClients, mockLedger, mockServices, mockStaff, mockUser } from './lib/mock'
 
 interface Data {
   staff: Staff[]
@@ -140,6 +141,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // Mutations update local state immediately (instant UI); the DB write runs in
   // the background. If a write fails, we resync from the server so nothing drifts.
   const persist = useCallback((p: PromiseLike<{ error: unknown }>, resync?: () => void) => {
+    if (isDemo()) return // dev preview: keep everything local
     Promise.resolve(p)
       .then((res: any) => {
         if (res && res.error) {
@@ -156,6 +158,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // ---- session restore -----------------------------------------------------
   useEffect(() => {
     let done = false
+    if (isDemo()) {
+      setUser(mockUser)
+      setData({
+        staff: mockStaff, services: mockServices, products: [], clients: mockClients,
+        appointments: mockAppointments, dayoff: new Set(), ledger: mockLedger,
+      })
+      setReady(true)
+      return
+    }
     ;(async () => {
       const { data: sess } = await supabase.auth.getSession()
       if (sess.session) {
