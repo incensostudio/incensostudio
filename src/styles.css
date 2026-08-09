@@ -1,0 +1,33 @@
+@font-face{font-family:"Geist";src:url("/fonts/geist.woff2") format("woff2");font-weight:100 900;font-style:normal;font-display:swap;}
+@font-face{font-family:"Geist Mono";src:url("/fonts/geist-mono.woff2") format("woff2");font-weight:100 900;font-style:normal;font-display:swap;}
+@font-face{font-family:"ALT Gumbo";src:url("/fonts/altgumbo-400.otf") format("opentype");font-weight:400;font-style:normal;font-display:swap;}
+@font-face{font-family:"ALT Gumbo";src:url("/fonts/altgumbo-500.otf") format("opentype");font-weight:500;font-style:normal;font-display:swap;}
+
+*{box-sizing:border-box;}
+html,body,#root{margin:0;height:100%;}
+body{background:#e5dcc9;color:#000;font-family:"Geist","Helvetica Neue",Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;}
+button{font-family:inherit;}
+input,select,textarea{font-family:inherit;}
+a{color:#000;text-decoration:none;}
+a:hover{color:rgba(0,0,0,.6);}
+::selection{background:#000;color:#FEFEF1;}
+::-webkit-scrollbar{width:10px;height:10px;}
+::-webkit-scrollbar-thumb{background:rgba(0,0,0,.18);border-radius:999px;border:3px solid #e5dcc9;}
+
+@keyframes drawerIn{from{transform:translateX(28px);opacity:0;} to{transform:none;opacity:1;}}
+@keyframes fadeIn{from{opacity:0;} to{opacity:1;}}
+@keyframes riseIn{from{transform:translateY(10px);opacity:0;} to{transform:none;opacity:1;}}
+@keyframes shake{10%,90%{transform:translateX(-2px);}20%,80%{transform:translateX(3px);}30%,50%,70%{transform:translateX(-5px);}40%,60%{transform:translateX(5px);}}
+@keyframes toastIn{from{transform:translate(-50%,14px);opacity:0;} to{transform:translate(-50%,0);opacity:1;}}
+
+@media (pointer:coarse),(max-width:819px){
+  button:not([data-tap="fixed"]),select,input{min-height:44px;}
+  button[data-tap="icon"]{min-width:44px;}
+}
+*:focus{outline:none;}
+*:focus-visible{outline:2px solid #b4462f;outline-offset:2px;border-radius:5px;}
+
+/* native controls to inherit the studio look */
+select{-webkit-appearance:none;appearance:none;background:#FEFEF1;}
+input,textarea{outline:none;}
+textarea{resize:none;}
