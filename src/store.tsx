@@ -3,7 +3,7 @@ import { supabase, callDeskAuth } from './lib/supabase'
 import type {
   Appointment, Client, DeskUser, LedgerDay, Method, Product, Service, Staff,
 } from './lib/types'
-import { dayMeta, staffFor, toMin, toTime } from './lib/format'
+import { dayMeta, staffFor, toMin, toTime, todayStr } from './lib/format'
 import { isDemo, mockAppointments, mockClients, mockLedger, mockServices, mockStaff, mockUser } from './lib/mock'
 
 interface Data {
@@ -223,7 +223,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         stage: 'paid', method, tip: i === 0 ? tip : 0, note: note || a.note, paid_at: nowIso,
       }).eq('id', a.id),
     ))
-  }, [setApts, persist])
+    // bump the client's running visit + spend counters (as the design shows)
+    const clientId = apts[0]?.client_id
+    if (clientId) {
+      const total = apts.reduce((s, x) => s + x.price + x.extras.reduce((q, e) => q + e.price, 0), 0) + tip
+      setData((d) => ({
+        ...d,
+        clients: d.clients.map((c) => (c.id === clientId
+          ? { ...c, visits: (c.visits || 0) + 1, spend: (c.spend || 0) + total, last_visit: todayStr() } : c)),
+      }))
+      const cur = data.clients.find((c) => c.id === clientId)
+      persist(supabase.from('clients').update({
+        visits: (cur?.visits || 0) + 1, spend: (cur?.spend || 0) + total, last_visit: todayStr(),
+      }).eq('id', clientId), reloadClients)
+    }
+  }, [setApts, persist, data.clients, reloadClients])
 
   const addServiceToVisit = useCallback<Store['addServiceToVisit']>(async (primary, svc) => {
     const kin = data.appointments.filter(

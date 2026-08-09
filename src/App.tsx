@@ -145,13 +145,13 @@ export function App() {
           {view === 'today' && (
             <Book viewedDate={viewedDate} setViewedDate={setViewedDate} openTicket={openTicket} openBooking={openBooking} />
           )}
-          {view === 'clients' && <Clients openClient={openClient} openTicket={openTicket} />}
+          {view === 'clients' && <Clients openClient={openClient} openTicket={openTicket} openBooking={openBooking} />}
           {view === 'pay' && <Payments openTicket={openTicket} openClose={openClose} />}
         </div>
       </main>
 
       {/* Drawers */}
-      {drawer?.kind === 'ticket' && <TicketDrawer client={drawer.client} date={drawer.date} onClose={close} openBooking={openBooking} />}
+      {drawer?.kind === 'ticket' && <TicketDrawer client={drawer.client} date={drawer.date} onClose={close} openBooking={openBooking} openClient={openClient} />}
       {drawer?.kind === 'booking' && <BookingDrawer seed={drawer.seed} onClose={close} />}
       {drawer?.kind === 'client' && <ClientDrawer clientId={drawer.clientId} onClose={close} openTicket={openTicket} />}
       {drawer?.kind === 'close' && <CloseDayDrawer date={drawer.date} onClose={close} />}

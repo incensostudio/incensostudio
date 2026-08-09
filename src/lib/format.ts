@@ -56,6 +56,17 @@ export const dayLabelLong = (s: string): string => {
   return m.wdLong + ' ' + m.num + ' ' + m.mon
 }
 
+// "today" / "yesterday" / "12 days ago" / "3 weeks ago" / "2 months ago"
+export const relativeAgo = (s: string | null | undefined): string => {
+  if (!s) return '—'
+  const n = -offsetOf(s)
+  if (n <= 0) return 'today'
+  if (n === 1) return 'yesterday'
+  if (n < 14) return `${n} days ago`
+  if (n < 60) return `${Math.round(n / 7)} weeks ago`
+  return `${Math.round(n / 30)} months ago`
+}
+
 export const slots = (step = 15): string[] => {
   const out: string[] = []
   for (let m = 9 * 60; m <= 20 * 60; m += step) out.push(toTime(m))
