@@ -26,13 +26,10 @@ interface Store extends Data {
   loading: boolean
   toast: string | null
   showToast: (t: string) => void
-  // auth
   login: (deskUserId: string, pin: string) => Promise<'ok' | 'invalid' | 'locked' | 'error'>
   logout: () => Promise<void>
-  // helpers
   staffById: (id: string | null) => Staff | undefined
   isOff: (date: string, staffId: string) => boolean
-  // mutations
   reloadAppointments: () => Promise<void>
   reloadLedger: () => Promise<void>
   reloadClients: () => Promise<void>
@@ -44,7 +41,7 @@ interface Store extends Data {
   updateExtraPrice: (extraId: string, price: number) => Promise<void>
   removeAppointment: (id: string) => Promise<void>
   updateAppointment: (id: string, patch: Partial<Appointment>) => Promise<void>
-  moveVisit: (visitId: string, toDate: string, staffWarnCb?: () => void) => Promise<void>
+  moveVisit: (visitId: string, toDate: string) => Promise<void>
   createBooking: (
     who: { clientId: string | null; name: string; phone: string; ig: string; tt: string; note: string },
     lines: { name: string; price: number; staff: string; date: string; time: string; dur: number }[],
@@ -64,9 +61,7 @@ export const useStore = () => {
   return s
 }
 
-function newId(): string {
-  return crypto.randomUUID()
-}
+const newId = (): string => crypto.randomUUID()
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<DeskUser | null>(null)
@@ -90,33 +85,29 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       date: r.date, time: r.time, duration_min: r.duration_min, stage: r.stage,
       method: r.method, tip: r.tip, note: r.note,
       extras: (r.appointment_extras || [])
-        .slice()
-        .sort((a: any, b: any) => a.sort - b.sort)
+        .slice().sort((a: any, b: any) => a.sort - b.sort)
         .map((e: any) => ({ id: e.id, name: e.name, price: e.price, kind: e.kind })),
     }))
 
   const reloadAppointments = useCallback(async () => {
-    const { data: rows } = await supabase
-      .from('appointments')
-      .select('*, appointment_extras(*)')
-    setData((d) => ({ ...d, appointments: rows ? mapAppointments(rows) : [] }))
+    const { data: rows } = await supabase.from('appointments').select('*, appointment_extras(*)')
+    if (rows) setData((d) => ({ ...d, appointments: mapAppointments(rows) }))
   }, [])
 
   const reloadClients = useCallback(async () => {
     const { data: rows } = await supabase.from('clients').select('*').order('name')
-    setData((d) => ({ ...d, clients: (rows as Client[]) || [] }))
+    if (rows) setData((d) => ({ ...d, clients: rows as Client[] }))
   }, [])
 
   const reloadLedger = useCallback(async () => {
-    const { data: rows } = await supabase
-      .from('ledger_days')
-      .select('*, ledger_items(*)')
-      .order('date', { ascending: false })
-    const ledger: LedgerDay[] = (rows || []).map((r: any) => ({
-      id: r.id, date: r.date, label: r.label, note: r.note, closed_at: r.closed_at,
-      items: (r.ledger_items || []).slice().sort((a: any, b: any) => (a.time < b.time ? -1 : 1)),
+    const { data: rows } = await supabase.from('ledger_days').select('*, ledger_items(*)').order('date', { ascending: false })
+    if (rows) setData((d) => ({
+      ...d,
+      ledger: rows.map((r: any) => ({
+        id: r.id, date: r.date, label: r.label, note: r.note, closed_at: r.closed_at,
+        items: (r.ledger_items || []).slice().sort((a: any, b: any) => (a.time < b.time ? -1 : 1)),
+      })),
     }))
-    setData((d) => ({ ...d, ledger }))
   }, [])
 
   const loadAll = useCallback(async () => {
@@ -145,6 +136,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setLoading(false)
   }, [])
 
+  // ---- background persistence with resync-on-error -------------------------
+  // Mutations update local state immediately (instant UI); the DB write runs in
+  // the background. If a write fails, we resync from the server so nothing drifts.
+  const persist = useCallback((p: PromiseLike<{ error: unknown }>, resync?: () => void) => {
+    Promise.resolve(p)
+      .then((res: any) => {
+        if (res && res.error) {
+          showToast('Could not save — refreshing')
+          ;(resync || reloadAppointments)()
+        }
+      })
+      .catch(() => (resync || reloadAppointments)())
+  }, [showToast, reloadAppointments])
+
+  const setApts = useCallback((fn: (a: Appointment[]) => Appointment[]) =>
+    setData((d) => ({ ...d, appointments: fn(d.appointments) })), [])
+
   // ---- session restore -----------------------------------------------------
   useEffect(() => {
     let done = false
@@ -153,10 +161,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (sess.session) {
         const { data: prof } = await supabase.rpc('my_profile')
         const me = Array.isArray(prof) ? prof[0] : prof
-        if (me && !done) {
-          setUser(me as DeskUser)
-          await loadAll()
-        }
+        if (me && !done) { setUser(me as DeskUser); await loadAll() }
       }
       if (!done) setReady(true)
     })()
@@ -170,16 +175,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (status === 429) return 'locked'
       if (status !== 200 || !res.session) return 'invalid'
       const { error } = await supabase.auth.setSession({
-        access_token: res.session.access_token,
-        refresh_token: res.session.refresh_token,
+        access_token: res.session.access_token, refresh_token: res.session.refresh_token,
       })
       if (error) return 'error'
       setUser(res.user as DeskUser)
       await loadAll()
       return 'ok'
-    } catch {
-      return 'error'
-    }
+    } catch { return 'error' }
   }, [loadAll])
 
   const logout = useCallback(async () => {
@@ -192,23 +194,25 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const staffById = useCallback((id: string | null) => data.staff.find((s) => s.id === id), [data.staff])
   const isOff = useCallback((date: string, staffId: string) => data.dayoff.has(`${date}:${staffId}`), [data.dayoff])
 
-  // ---- mutations -----------------------------------------------------------
+  // ---- mutations (optimistic) ----------------------------------------------
   const checkInVisit = useCallback<Store['checkInVisit']>(async (ids) => {
-    await supabase.from('appointments').update({ stage: 'arrived' }).in('id', ids)
-    await reloadAppointments()
-  }, [reloadAppointments])
+    setApts((a) => a.map((x) => (ids.includes(x.id) ? { ...x, stage: 'arrived' } : x)))
+    persist(supabase.from('appointments').update({ stage: 'arrived' }).in('id', ids))
+  }, [setApts, persist])
 
   const takePayment = useCallback<Store['takePayment']>(async (apts, { method, tip, note }) => {
-    for (let i = 0; i < apts.length; i++) {
-      const a = apts[i]
-      await supabase.from('appointments').update({
-        stage: 'paid', method, tip: i === 0 ? tip : 0, note: note || a.note,
-        paid_at: new Date().toISOString(),
-      }).eq('id', a.id)
-    }
-    await reloadAppointments()
-    await reloadClients()
-  }, [reloadAppointments, reloadClients])
+    const ids = apts.map((a) => a.id)
+    setApts((a) => a.map((x) => {
+      const i = ids.indexOf(x.id)
+      return i >= 0 ? { ...x, stage: 'paid', method, tip: i === 0 ? tip : 0, note: note || x.note } : x
+    }))
+    const nowIso = new Date().toISOString()
+    apts.forEach((a, i) => persist(
+      supabase.from('appointments').update({
+        stage: 'paid', method, tip: i === 0 ? tip : 0, note: note || a.note, paid_at: nowIso,
+      }).eq('id', a.id),
+    ))
+  }, [setApts, persist])
 
   const addServiceToVisit = useCallback<Store['addServiceToVisit']>(async (primary, svc) => {
     const kin = data.appointments.filter(
@@ -216,148 +220,148 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     )
     const end = kin.reduce((m, x) => Math.max(m, toMin(x.time) + (x.duration_min || 60)), toMin(primary.time))
     const staff = staffFor(svc.category, primary.staff_id, data.staff, (id) => isOff(primary.date, id))
-    await supabase.from('appointments').insert({
-      id: newId(), visit_id: primary.visit_id, client_id: primary.client_id,
-      client_name: primary.client_name, phone: primary.phone, service_name: svc.name,
-      price: svc.price, staff_id: staff, date: primary.date, time: toTime(end),
-      duration_min: svc.minutes || 60, stage: primary.stage === 'arrived' ? 'arrived' : 'booked',
-      note: '',
-    })
-    await reloadAppointments()
+    const na: Appointment = {
+      id: newId(), visit_id: primary.visit_id, client_id: primary.client_id, client_name: primary.client_name,
+      phone: primary.phone, service_name: svc.name, price: svc.price, staff_id: staff,
+      date: primary.date, time: toTime(end), duration_min: svc.minutes || 60,
+      stage: primary.stage === 'arrived' ? 'arrived' : 'booked', method: null, tip: 0, note: '', extras: [],
+    }
+    setApts((a) => [...a, na])
+    persist(supabase.from('appointments').insert({
+      id: na.id, visit_id: na.visit_id, client_id: na.client_id, client_name: na.client_name,
+      phone: na.phone, service_name: na.service_name, price: na.price, staff_id: na.staff_id,
+      date: na.date, time: na.time, duration_min: na.duration_min, stage: na.stage, note: '',
+    }))
     const st = data.staff.find((s) => s.id === staff)
-    showToast(`${svc.name} added at ${toTime(end)} with ${st?.name || '—'} — one ticket for ${primary.client_name}`)
-  }, [data.appointments, data.staff, isOff, reloadAppointments, showToast])
+    showToast(`${svc.name} added at ${na.time} with ${st?.name || '—'} — one ticket for ${primary.client_name}`)
+  }, [data.appointments, data.staff, isOff, setApts, persist, showToast])
 
   const addProductLine = useCallback<Store['addProductLine']>(async (primary, item) => {
-    await supabase.from('appointment_extras').insert({
-      appointment_id: primary.id, name: item.name, price: item.price, kind: 'product',
+    const id = newId()
+    setApts((a) => a.map((x) => (x.id === primary.id
+      ? { ...x, extras: [...x.extras, { id, name: item.name, price: item.price, kind: 'product' as const }] } : x)))
+    persist(supabase.from('appointment_extras').insert({
+      id, appointment_id: primary.id, name: item.name, price: item.price, kind: 'product',
       sort: (primary.extras?.length || 0) + 1,
-    })
-    await reloadAppointments()
+    }))
     showToast(`${item.name} added to ${primary.client_name}'s ticket`)
-  }, [reloadAppointments, showToast])
+  }, [setApts, persist, showToast])
 
   const removeExtra = useCallback<Store['removeExtra']>(async (extraId) => {
-    await supabase.from('appointment_extras').delete().eq('id', extraId)
-    await reloadAppointments()
-  }, [reloadAppointments])
+    setApts((a) => a.map((x) => ({ ...x, extras: x.extras.filter((e) => e.id !== extraId) })))
+    persist(supabase.from('appointment_extras').delete().eq('id', extraId))
+  }, [setApts, persist])
 
   const updateExtraPrice = useCallback<Store['updateExtraPrice']>(async (extraId, price) => {
-    await supabase.from('appointment_extras').update({ price }).eq('id', extraId)
-    await reloadAppointments()
-  }, [reloadAppointments])
+    setApts((a) => a.map((x) => ({ ...x, extras: x.extras.map((e) => (e.id === extraId ? { ...e, price } : e)) })))
+    persist(supabase.from('appointment_extras').update({ price }).eq('id', extraId))
+  }, [setApts, persist])
 
   const removeAppointment = useCallback<Store['removeAppointment']>(async (id) => {
-    await supabase.from('appointments').delete().eq('id', id)
-    await reloadAppointments()
-  }, [reloadAppointments])
+    setApts((a) => a.filter((x) => x.id !== id))
+    persist(supabase.from('appointments').delete().eq('id', id))
+  }, [setApts, persist])
 
   const updateAppointment = useCallback<Store['updateAppointment']>(async (id, patch) => {
+    setApts((a) => a.map((x) => (x.id === id ? { ...x, ...patch } : x)))
     const db: any = {}
-    if (patch.time !== undefined) db.time = patch.time
-    if (patch.duration_min !== undefined) db.duration_min = patch.duration_min
-    if (patch.staff_id !== undefined) db.staff_id = patch.staff_id
-    if (patch.price !== undefined) db.price = patch.price
-    if (patch.note !== undefined) db.note = patch.note
-    if (patch.stage !== undefined) db.stage = patch.stage
-    if (patch.date !== undefined) db.date = patch.date
-    await supabase.from('appointments').update(db).eq('id', id)
-    await reloadAppointments()
-  }, [reloadAppointments])
+    for (const k of ['time', 'duration_min', 'staff_id', 'price', 'note', 'stage', 'date'] as const) {
+      if (patch[k] !== undefined) db[k] = patch[k]
+    }
+    persist(supabase.from('appointments').update(db).eq('id', id))
+  }, [setApts, persist])
 
   const moveVisit = useCallback<Store['moveVisit']>(async (visitId, toDate) => {
-    await supabase.from('appointments').update({ date: toDate }).eq('visit_id', visitId)
-    await reloadAppointments()
-  }, [reloadAppointments])
+    setApts((a) => a.map((x) => (x.visit_id === visitId ? { ...x, date: toDate } : x)))
+    persist(supabase.from('appointments').update({ date: toDate }).eq('visit_id', visitId))
+  }, [setApts, persist])
 
   const createBooking = useCallback<Store['createBooking']>(async (who, lines) => {
     let clientId = who.clientId
-    // create the client if new
-    if (!clientId && who.name.trim()) {
-      const existing = data.clients.find((c) => c.name.toLowerCase() === who.name.trim().toLowerCase())
+    const trimmed = who.name.trim()
+    if (!clientId && trimmed) {
+      const existing = data.clients.find((c) => c.name.toLowerCase() === trimmed.toLowerCase())
       if (existing) clientId = existing.id
       else {
-        const { data: c } = await supabase.from('clients').insert({
-          name: who.name.trim(), phone: who.phone, instagram: who.ig, tiktok: who.tt, note: who.note,
-        }).select().single()
-        if (c) { clientId = (c as Client).id; await reloadClients() }
+        clientId = newId()
+        const nc: Client = { id: clientId, name: trimmed, phone: who.phone, instagram: who.ig, tiktok: who.tt, note: who.note }
+        setData((d) => ({ ...d, clients: [...d.clients, nc].sort((a, b) => a.name.localeCompare(b.name)) }))
+        persist(supabase.from('clients').insert(nc), reloadClients)
       }
     }
     const visit = newId()
     const rows = lines.map((l) => ({
-      id: newId(), visit_id: visit, client_id: clientId, client_name: who.name.trim() || 'Walk-in',
+      id: newId(), visit_id: visit, client_id: clientId, client_name: trimmed || 'Walk-in',
       phone: who.phone, service_name: l.name, price: l.price, staff_id: l.staff,
-      date: l.date, time: l.time, duration_min: l.dur, stage: 'booked', note: who.note || '',
+      date: l.date, time: l.time, duration_min: l.dur, stage: 'booked' as const, note: who.note || '',
     }))
-    await supabase.from('appointments').insert(rows)
-    await reloadAppointments()
+    setApts((a) => [...a, ...rows.map((r) => ({ ...r, method: null, tip: 0, extras: [] }))])
+    persist(supabase.from('appointments').insert(rows))
     const dm = dayMeta(lines[0].date)
-    showToast(`${lines.length === 1 ? '1 service' : lines.length + ' services'} booked for ${who.name.trim() || 'Walk-in'} — ${dm.wd} ${dm.num} ${dm.mon}`)
-  }, [data.clients, reloadAppointments, reloadClients, showToast])
+    showToast(`${lines.length === 1 ? '1 service' : lines.length + ' services'} booked for ${trimmed || 'Walk-in'} — ${dm.wd} ${dm.num} ${dm.mon}`)
+  }, [data.clients, setApts, persist, reloadClients, showToast])
 
   const toggleDayOff = useCallback<Store['toggleDayOff']>(async (date, staffId) => {
-    if (isOff(date, staffId)) {
-      await supabase.from('day_off').delete().eq('date', date).eq('staff_id', staffId)
-    } else {
-      await supabase.from('day_off').insert({ date, staff_id: staffId })
-    }
-    const { data: rows } = await supabase.from('day_off').select('date, staff_id')
-    setData((d) => ({ ...d, dayoff: new Set((rows || []).map((r: any) => `${r.date}:${r.staff_id}`)) }))
-  }, [isOff])
+    const key = `${date}:${staffId}`
+    const currentlyOff = data.dayoff.has(key)
+    setData((d) => {
+      const next = new Set(d.dayoff)
+      if (currentlyOff) next.delete(key); else next.add(key)
+      return { ...d, dayoff: next }
+    })
+    if (currentlyOff) persist(supabase.from('day_off').delete().eq('date', date).eq('staff_id', staffId), () => {})
+    else persist(supabase.from('day_off').insert({ date, staff_id: staffId }), () => {})
+  }, [data.dayoff, persist])
 
   const saveClient = useCallback<Store['saveClient']>(async (id, patch) => {
-    await supabase.from('clients').update(patch).eq('id', id)
     setData((d) => ({ ...d, clients: d.clients.map((c) => (c.id === id ? { ...c, ...patch } : c)) }))
-  }, [])
+    persist(supabase.from('clients').update(patch).eq('id', id), reloadClients)
+  }, [persist, reloadClients])
 
   const createClient = useCallback<Store['createClient']>(async (patch) => {
-    const { data: c } = await supabase.from('clients').insert(patch).select().single()
-    if (c) await reloadClients()
-    return (c as Client) || null
-  }, [reloadClients])
+    const c: Client = { id: newId(), ...patch }
+    setData((d) => ({ ...d, clients: [...d.clients, c].sort((a, b) => a.name.localeCompare(b.name)) }))
+    persist(supabase.from('clients').insert(c), reloadClients)
+    return c
+  }, [persist, reloadClients])
 
   const deleteClient = useCallback<Store['deleteClient']>(async (id) => {
-    await supabase.from('clients').delete().eq('id', id)
-    await reloadClients()
-  }, [reloadClients])
+    setData((d) => ({ ...d, clients: d.clients.filter((c) => c.id !== id) }))
+    persist(supabase.from('clients').delete().eq('id', id), reloadClients)
+  }, [persist, reloadClients])
 
   const closeDay = useCallback<Store['closeDay']>(async (date) => {
     const paid = data.appointments.filter((a) => a.date === date && a.stage === 'paid')
-    // group by visit
     const groups = new Map<string, Appointment[]>()
-    paid.forEach((a) => {
-      const arr = groups.get(a.visit_id) || []
-      arr.push(a)
-      groups.set(a.visit_id, arr)
-    })
+    paid.forEach((a) => { const arr = groups.get(a.visit_id) || []; arr.push(a); groups.set(a.visit_id, arr) })
     const m = dayMeta(date)
-    const { data: day } = await supabase.from('ledger_days').insert({
-      date, label: `${m.wd} ${m.num} ${m.mon}`, note: '', closed_by: user?.id || null,
-    }).select().single()
-    if (!day) return
-    const items: any[] = []
-    let sort = 0
-    for (const [, arr] of groups) {
+    const dayId = newId()
+    const items = Array.from(groups.values()).map((arr, idx) => {
       const first = arr.slice().sort((a, b) => (a.time < b.time ? -1 : 1))[0]
       const total = arr.reduce((s, x) => s + x.price + x.extras.reduce((q, e) => q + e.price, 0) + (x.tip || 0), 0)
       const staffNames = Array.from(new Set(arr.map((x) => staffById(x.staff_id)?.name || '—')))
-      const services = arr.map((x) => x.service_name)
-      items.push({
-        ledger_day_id: (day as any).id, time: first.time, client: first.client_name,
-        service: services.join(' + '), staff_name: staffNames.join(', '),
-        method: first.method || 'Cash', total, sort: sort++,
-      })
+      return {
+        id: newId(), ledger_day_id: dayId, time: first.time, client: first.client_name,
+        service: arr.map((x) => x.service_name).join(' + '), staff_name: staffNames.join(', '),
+        method: (first.method || 'Cash') as Method, total, sort: idx,
+      }
+    })
+    const day: LedgerDay = {
+      id: dayId, date, label: `${m.wd} ${m.num} ${m.mon}`, note: '',
+      closed_at: new Date().toISOString(),
+      items: items.map(({ time, client, service, staff_name, method, total }) => ({ time, client, service, staff_name, method, total })),
     }
-    if (items.length) await supabase.from('ledger_items').insert(items)
-    await reloadLedger()
-    showToast(`Day closed — ${items.length} tickets written to the ledger`)
-  }, [data.appointments, user, staffById, reloadLedger, showToast])
+    setData((d) => ({ ...d, ledger: [day, ...d.ledger].sort((a, b) => (a.date < b.date ? 1 : -1)) }))
+    persist(supabase.from('ledger_days').insert({ id: dayId, date, label: day.label, note: '', closed_by: user?.id || null }), reloadLedger)
+    if (items.length) persist(supabase.from('ledger_items').insert(items), reloadLedger)
+    showToast(`Day closed — ${items.length} ${items.length === 1 ? 'ticket' : 'tickets'} written to the ledger`)
+  }, [data.appointments, user, staffById, persist, reloadLedger, showToast])
 
   const reopenDay = useCallback<Store['reopenDay']>(async (date) => {
-    await supabase.from('ledger_days').delete().eq('date', date)
-    await reloadLedger()
+    setData((d) => ({ ...d, ledger: d.ledger.filter((x) => x.date !== date) }))
+    persist(supabase.from('ledger_days').delete().eq('date', date), reloadLedger)
     showToast('Day reopened')
-  }, [reloadLedger, showToast])
+  }, [persist, reloadLedger, showToast])
 
   const value = useMemo<Store>(() => ({
     ...data, user, ready, loading, toast, showToast,

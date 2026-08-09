@@ -125,7 +125,7 @@ export function App() {
 
       <main style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {/* Header */}
-        <header style={{ display: 'flex', alignItems: 'center', gap: 12, padding: narrow ? '12px 14px' : '20px 26px 14px' }}>
+        <header style={{ display: 'flex', alignItems: 'center', gap: 12, padding: narrow ? 'calc(12px + env(safe-area-inset-top)) 14px 12px' : '20px 26px 14px' }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontFamily: F.display, fontSize: 21 }}>{header[0]}</div>
             <div style={{ fontFamily: F.mono, fontSize: 9.5, letterSpacing: '.16em', textTransform: 'uppercase', color: C.mut45, paddingTop: 3 }}>{header[1]}</div>
