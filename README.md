@@ -1,47 +1,32 @@
-# Incenso Studio — Salon Management System
+# Incenso Studio — Management app
 
-The front-desk system for **Incenso Studio**: sign in, run the day as a per-stylist
-calendar, book appointments, check clients in, build a ticket, take payment, and close
-the day into a running ledger — plus a client directory with visit history.
-
-Works on any desktop browser and installs as a **PWA** on phones.
-
-Live at **https://management.incensostudio.com**
+The studio's back-office, live at **https://management.incensostudio.com**: calendar by chair,
+bookings, clients, orders + desk sales (POS), gift cards, products & stock, suppliers & purchase
+orders, staff & rota, finances, reports, WhatsApp messages, and every site setting — behind a
+WhatsApp-OTP sign-in with per-person permissions.
 
 ## Tech
 
-- **Frontend:** React + TypeScript + Vite, installable PWA (`vite-plugin-pwa`)
-- **Backend:** Supabase (Postgres + Auth + Row Level Security)
-- **Auth:** front-desk passcode sign-in, verified server-side in the `desk-auth`
-  Edge Function (bcrypt hashes, 6-try lockout). No passcodes ever ship to the browser.
-- **Hosting:** GitHub Pages via GitHub Actions (auto-deploys on every push)
+- **Frontend:** plain HTML/CSS/JS, **no build step** (same stack as incensostudio.com). Entry is
+  `management.html` / `index.html`; views live in `assets/mgmt/*`.
+- **Backend:** Supabase (Postgres + Auth + Edge Functions), shared with the customer site.
+- **Sign-in:** the site's WhatsApp OTP (`IncensoAuth`), then a `desk_users` lookup for
+  per-person modules + permission flags.
+- **Hosting:** GitHub Pages via GitHub Actions — **deploys from `main` only** (feature branches
+  don't publish to the live URL).
 
-## Local development
+## Structure
 
-```bash
-npm install
-npm run dev        # http://localhost:5173
-```
+- `management.html` / `index.html` — app shell (keep the script order).
+- `assets/mgmt/` — the app: `mgmt.css`, `data.js` (the Supabase data layer), `ui.js`, `app.js`
+  (sign-in gate, permissions, router, ⌘K search), and the view modules `v-today`, `v-bookings`,
+  `v-commerce`, `v-admin`, `v-content`, `v-reports`, `v-home`, `v-supply`, plus `wordmark.js`.
+- `assets/catalog.js`, `assets/auth.js`, `assets/supabase.js`, `assets/phone.js` — shared modules
+  reused from the customer site (catalogue seed + WhatsApp-OTP sign-in).
+- `assets/preview-nav.js` — design-preview shim; inert on the live domain.
+- `supabase/functions/` — Edge Functions.
 
-`npm run build` produces the production site in `dist/`. Supabase URL and the
-public (RLS-protected) publishable key live in `src/lib/config.ts`.
-
-## Project layout
-
-```
-src/
-  App.tsx              app shell (rail / mobile tab bar, header, drawers)
-  store.tsx            data + all actions, wired to Supabase
-  screens/             SignIn · Book · Clients · Payments
-  drawers/             Ticket · Booking · Client card · Close day
-  lib/                 types, formatting, history derivation, tokens
-supabase/functions/
-  desk-auth/           passcode sign-in Edge Function
-```
-
-## Data model
-
-The **visit** (a client's services on one day) is the core unit — one ticket, one
-payment, one history entry. Services and products are separate: a product can never
-hold a time, a stylist, or a calendar slot. Client history and every ledger figure are
-**derived** from the underlying tickets, never stored as summaries.
+The design ↔ backend contract for the customer site lives in that repo's `HANDOFF-CONTRACT.md`;
+this app's spec is §11 / §11a there. Design and behaviour live in the same page files — the one
+seam swapped from the design prototype is the store in `assets/mgmt/data.js` (localStorage →
+Supabase).

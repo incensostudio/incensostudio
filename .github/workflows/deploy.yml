@@ -1,59 +1,38 @@
-name: Deploy to GitHub Pages
+name: Deploy management to GitHub Pages
 
+# The management app is now a no-build static site (management.html + assets/mgmt/*).
+# Deploys ONLY from main, so work on feature branches (e.g. claude/salon-management-pwa-*)
+# never publishes to the live management.incensostudio.com until merged.
 on:
   push:
     branches:
       - main
-      - claude/salon-management-pwa-h1deje
   workflow_dispatch:
 
-# Permissions the built-in token needs to publish Pages.
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Only one live deploy at a time.
 concurrency:
   group: pages
   cancel-in-progress: true
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build
-        run: npm run build
-
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
-        with:
-          enablement: true
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: dist
-
   deploy:
-    needs: build
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Upload artifact (static site root)
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
