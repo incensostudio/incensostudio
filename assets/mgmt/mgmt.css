@@ -609,6 +609,16 @@ a.row:hover,.row[role=button]:hover{background:var(--surface-2);cursor:pointer}
 .bb-qty{display:inline-flex;align-items:center;gap:2px;border:1px solid var(--line-strong);border-radius:999px;background:var(--surface);height:32px;padding:0 2px}
 .bb-qty button{appearance:none;border:0;background:transparent;width:28px;height:28px;border-radius:999px;font-size:15px;color:var(--muted);cursor:pointer}.bb-qty button:hover{background:var(--surface-2);color:var(--fg)}
 .bb-qty b{font-variant-numeric:tabular-nums;font-size:14px;min-width:20px;text-align:center}.bb-qty small{font-size:10.5px;color:var(--faint);margin-right:2px}
+/* ---- stock on phones ---- */
+@media(max-width:899px){
+  .seg.wide{max-width:none!important}.seg-x{display:none}.seg button{padding:0 6px;font-size:13px;height:38px}
+  .stock-bar{flex-wrap:wrap}.stock-bar>div:first-child{flex:1 1 100%!important}.stock-bar .inline{width:100%}.stock-bar .inline .btn{flex:1}
+  .bb-row{grid-template-columns:auto 1fr;grid-template-rows:auto auto;row-gap:8px;padding:12px 14px}
+  .bb-row .end{grid-column:1/-1;flex-direction:row;justify-content:flex-end}
+  .bb-row .t{white-space:normal}.bb-row .s{white-space:normal}
+  .bb-qty{height:44px;padding:0 3px;gap:4px}.bb-qty button{width:44px;height:38px;font-size:20px}.bb-qty b{font-size:16px;min-width:26px}
+  .edit-hint{display:none}
+}
 
 /* ---- finances month calendar ---- */
 .mcal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px}

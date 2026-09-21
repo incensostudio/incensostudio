@@ -8,8 +8,8 @@
   ];
   M.NAV_LABEL = {}; NAV.forEach((n) => { if (n.id) M.NAV_LABEL[n.id] = n.label; });
   const DETAIL_PARENT = { booking: 'home', bookings: 'home', today: 'home', client: 'clients', order: 'orders', gift: 'gifts', product: 'products', po: 'products', supplier: 'products', member: 'settings', setting: 'settings', staff: 'settings', services: 'settings' };
-  const TAB_PREF = ['home', 'orders', 'money', 'gifts', 'clients'];
-  const TAB_LABEL = { home: 'Home', today: 'Calendar', bookings: 'Bookings', orders: 'Shop', products: 'Stock', money: 'Money', gifts: 'Gifts', clients: 'Clients', products: 'Stock', messages: 'Messages', more: 'More' };
+  const TAB_PREF = ['home', 'orders', 'gifts', 'clients'];
+  const TAB_LABEL = { home: 'Home', today: 'Calendar', bookings: 'Bookings', orders: 'Shop', products: 'Stock', money: 'Finances', gifts: 'Gifts', clients: 'Clients', products: 'Stock', messages: 'Messages', more: 'More' };
   const perms = (u) => { const live = M.db.users.find((x) => x.phone === u.phone); return live || u; };
   const allowed = (user, id) => { if (id === 'more') return true; if (id === 'today' || id === 'bookings') id = 'home'; if (id === 'staff' || id === 'services') id = 'settings'; const u = perms(user); if (u.active === false) return false; return !M.NAV_LABEL[id] || (u.modules || []).includes(id); };
   const tabsFor = (user) => TAB_PREF.filter((t) => allowed(user, t)).slice(0, 4).concat(['more']);
@@ -60,7 +60,7 @@
   const boot = () => {
     M.syncFromAuth();
     document.body.innerHTML = '';
-    const shell = el('<div class="shell"><nav class="rail" aria-label="Sections"></nav><div class="main"><header class="top"><button class="icon-btn wm" aria-label="Incenso" data-home>' + window.INCENSO_WORDMARK.replace('viewBox="8 76 1282 226"', 'viewBox="972 69 324 240"') + '</button><div class="ttl"></div><div class="tb-r"><button class="icon-btn" data-search aria-label="Search">' + icon('search') + '</button><button class="icon-btn" data-me aria-label="Notifications">' + icon('bell') + '<span class="dot hide" data-badge="messages"></span></button></div></header><main class="content" id="view"></main></div><nav class="tabs" aria-label="Main"></nav></div>');
+    const shell = el('<div class="shell"><nav class="rail" aria-label="Sections"></nav><div class="main"><header class="top"><button class="icon-btn wm" aria-label="Incenso" data-home>' + window.INCENSO_WORDMARK.replace('viewBox="8 76 1282 226"', 'viewBox="972 69 324 240"') + '</button><div class="ttl"></div><div class="tb-r"><button class="icon-btn" data-search aria-label="Search">' + icon('search') + '</button></div></header><main class="content" id="view"></main></div><nav class="tabs" aria-label="Main"></nav></div>');
     root = shell.querySelector('#view'); titleEl = shell.querySelector('.ttl');
     const rail = shell.querySelector('.rail');
     rail.insertAdjacentHTML('beforeend', window.INCENSO_WORDMARK);
@@ -76,7 +76,6 @@
     TABS.forEach((t) => tabs.insertAdjacentHTML('beforeend', '<a href="#/' + t + '" data-nav="' + t + '">' + icon(t === 'more' ? 'more' : t) + esc(TAB_LABEL[t]) + '<span class="dot hide" data-badge="' + t + '"></span></a>'));
     tabs.style.gridTemplateColumns = 'repeat(' + TABS.length + ',1fr)';
     shell.querySelector('[data-home]').onclick = () => { location.hash = '#/home'; };
-    shell.querySelector('[data-me]').onclick = () => meSheet();
     shell.querySelector('[data-search]').onclick = globalSearch;
     document.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); globalSearch(); } });
     document.body.appendChild(shell);
@@ -132,25 +131,25 @@
     current = { name, param };
     document.querySelectorAll('[data-nav]').forEach((a) => { const on = a.dataset.nav === parent || (a.dataset.nav === 'more' && !tabsFor(user).includes(parent) && !a.closest('.rail')); if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
     root.innerHTML = ''; root.className = 'content'; document.querySelectorAll('.top [data-quick]').forEach((x) => x.remove());
-    const ctx = { root, param, user, back: DETAIL_PARENT[name] ? '#/' + DETAIL_PARENT[name] : null, title: (t, s) => { document.title = t + ' — Incenso Studio management'; titleEl.innerHTML = esc(t) + (s ? '<small>' + esc(s) + '</small>' : ''); } };
+    const viaMore = !DETAIL_PARENT[name] && name !== 'more' && !tabsFor(user).includes(name) && window.matchMedia('(max-width:899px)').matches;
+    const ctx = { root, param, user, back: DETAIL_PARENT[name] ? '#/' + DETAIL_PARENT[name] : viaMore ? '#/more' : null, title: (t, s) => { document.title = t + ' — Incenso Studio management'; titleEl.innerHTML = esc(t) + (s ? '<small>' + esc(s) + '</small>' : ''); } };
     ctx.title(v.title || name);
-    if (ctx.back) { const wm = document.querySelector('[data-home]'); wm.innerHTML = icon('back'); wm.onclick = () => { location.hash = ctx.back; }; } else { const wm = document.querySelector('[data-home]'); wm.innerHTML = window.INCENSO_WORDMARK.replace('viewBox="8 76 1282 226"', 'viewBox="972 69 324 240"'); wm.onclick = () => { location.hash = '#/home'; }; }
+    if (ctx.back && !viaMore) { const wm = document.querySelector('[data-home]'); wm.innerHTML = icon('back'); wm.onclick = () => { location.hash = ctx.back; }; } else { const wm = document.querySelector('[data-home]'); wm.innerHTML = window.INCENSO_WORDMARK.replace('viewBox="8 76 1282 226"', 'viewBox="972 69 324 240"'); wm.onclick = () => { location.hash = '#/home'; }; }
     v.render(ctx);
-    if (ctx.back && !root.querySelector('.ed-back') && !root.querySelector('.pg-back')) { const lbl = M.NAV_LABEL[DETAIL_PARENT[name]] || 'Back'; root.insertAdjacentHTML('afterbegin', '<a class="pg-back" href="' + ctx.back + '">' + icon('left') + esc(lbl) + '</a>'); }
+    if (ctx.back && !root.querySelector('.ed-back') && !root.querySelector('.pg-back')) { const lbl = viaMore ? 'More' : M.NAV_LABEL[DETAIL_PARENT[name]] || 'Back'; root.insertAdjacentHTML('afterbegin', '<a class="pg-back" href="' + ctx.back + '">' + icon('left') + esc(lbl) + '</a>'); }
     window.scrollTo(0, 0);
     badges();
   };
   M.refresh = () => { if (current) { const y = window.scrollY; render(); window.scrollTo(0, y); } };
   M.on((what) => { if (what !== 'reset') M.refresh(); });
   window.addEventListener('hashchange', render);
+  window.matchMedia('(max-width:899px)').addEventListener('change', () => M.refresh());
 
   // ---- More ----
   M.views.more = { title: 'More', render(ctx) {
     const g = el('<div class="grid2"></div>');
-    NAV.filter((n) => !n.grp && allowed(user, n.id)).forEach((n) => g.insertAdjacentHTML('beforeend', '<a class="tile" href="#/' + n.id + '">' + icon(n.id) + '<span><b>' + esc(n.label) + '</b><small>' + esc(MORE_SUB[n.id] || '') + '</small></span></a>'));
+    const tabs = tabsFor(user); NAV.filter((n) => !n.grp && !tabs.includes(n.id) && allowed(user, n.id)).forEach((n) => g.insertAdjacentHTML('beforeend', '<a class="tile" href="#/' + n.id + '">' + icon(n.id) + '<span><b>' + esc(n.label) + '</b><small>' + esc(MORE_SUB[n.id] || '') + '</small></span></a>'));
     ctx.root.appendChild(g);
-    const a = M.db.audit.slice(0, 8);
-    if (a.length) ctx.root.appendChild(U.card('Recent activity', a.map((x) => U.row({ title: esc(x.action) + (x.ref ? ' <span class="ref">' + esc(x.ref) + '</span>' : ''), sub: esc(x.by || '') + ' · ' + M.rel(x.at) }))));
     ctx.root.insertAdjacentHTML('beforeend', '<p class="note" style="text-align:center">Studio management · ' + esc(user.name) + ' · ' + esc(roleLabel(user)) + '</p>');
   } };
   const MORE_SUB = { home: 'Today at a glance', supply: 'Purchase orders & stock-in', reports: 'Top services, occupancy, retention', today: 'Day & week by chair', bookings: 'All appointments', clients: 'Members & history', orders: 'Shop orders & courier', gifts: 'Activate, cancel, resend', products: 'Stock & restock alerts', money: 'Takings, payouts, P&L', staff: 'Schedules & days off', services: 'Menus & pricing', messages: 'WhatsApp log', settings: 'Hours, ticker, tiers' };
