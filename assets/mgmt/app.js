@@ -150,6 +150,7 @@
     const g = el('<div class="grid2"></div>');
     const tabs = tabsFor(user); NAV.filter((n) => !n.grp && !tabs.includes(n.id) && allowed(user, n.id)).forEach((n) => g.insertAdjacentHTML('beforeend', '<a class="tile" href="#/' + n.id + '">' + icon(n.id) + '<span><b>' + esc(n.label) + '</b><small>' + esc(MORE_SUB[n.id] || '') + '</small></span></a>'));
     ctx.root.appendChild(g);
+    const so = el('<button class="btn ghost wide" style="margin-top:12px">Sign out</button>'); so.onclick = signOut; ctx.root.appendChild(so);
     ctx.root.insertAdjacentHTML('beforeend', '<p class="note" style="text-align:center">Studio management · ' + esc(user.name) + ' · ' + esc(roleLabel(user)) + '</p>');
   } };
   const MORE_SUB = { home: 'Today at a glance', supply: 'Purchase orders & stock-in', reports: 'Top services, occupancy, retention', today: 'Day & week by chair', bookings: 'All appointments', clients: 'Members & history', orders: 'Shop orders & courier', gifts: 'Activate, cancel, resend', products: 'Stock & restock alerts', money: 'Takings, payouts, P&L', staff: 'Schedules & days off', services: 'Menus & pricing', messages: 'WhatsApp log', settings: 'Hours, ticker, tiers' };
