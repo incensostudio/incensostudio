@@ -229,15 +229,217 @@
   const BLANK = 'incenso-mgmt-blank';
   const isBlank = () => { try { return localStorage.getItem(BLANK) === '1'; } catch (e) { return false; } };
   const blank = () => { const s = seed(); Object.assign(s, { clients: [], bookings: [], orders: [], gifts: [], expenses: [], messages: [], blocks: [], payouts: [], closes: [], newsletter: [], purchases: [], audit: [], counters: { BK: 1000, OR: 1000, GF: 1000, PO: 1 } }); s.products.forEach((p) => { p.sold30 = 0; p.restocks = 0; }); s.blank = true; return s; };
-  let db; try { db = JSON.parse(localStorage.getItem(KEY)); } catch (e) {}
-  if (isBlank() && (!db || !db.blank)) db = blank();
-  if (!db || db.v !== 14 || (db.staff && db.staff[0] && db.staff[0].accent !== BASE_STAFF[0].accent) || !db.bookings || (!db.blank && (!db.bookings.length || !db.bookings.some((b) => lkey(b.start) === lkey(at(0, 0)))))) db = isBlank() ? blank() : seed();
-  if (db && !db.income) db.income = [];
+  // ============================================================
+  //  STORE  — Supabase-backed when signed in; localStorage seed for the
+  //  offline design preview. The public surface (IncensoMgmt.db + save() +
+  //  helpers) is unchanged; only the source of truth swaps.
+  //  The customer website is the source of truth: shared tables (bookings,
+  //  orders, gift_cards, profiles) are read/written in the SITE's vocabulary
+  //  (status labels, pay labels, staff-as-string, settled-via-final); the
+  //  desk keeps its richer state in additive columns so the site is untouched.
+  // ============================================================
+  const SB = window.SB;
+  const online = !!SB;
   const listeners = new Set();
-  const save = (what) => { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) {} listeners.forEach((f) => f(what)); };
-  const reset = (mode) => { try { if (mode === 'blank') localStorage.setItem(BLANK, '1'); else localStorage.removeItem(BLANK); } catch (e) {} db = mode === 'blank' ? blank() : seed(); save('reset'); };
-  const log = (action, ref, by) => { db.audit.unshift({ at: new Date().toISOString(), action, ref, by }); if (db.audit.length > 200) db.audit.length = 200; };
+  const notify = (what) => listeners.forEach((f) => f(what));
+  const uuid = () => (window.crypto && crypto.randomUUID ? crypto.randomUUID() : 'x' + Date.now() + Math.random().toString(16).slice(2));
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const digitsP = (p) => String(p || '').replace(/\D/g, '');
+
+  let db;
+  if (online) {
+    try { db = JSON.parse(localStorage.getItem(KEY)); } catch (e) {}
+    if (!db || db.online !== true) { db = blank(); db.online = true; db.blank = false; }
+  } else {
+    try { db = JSON.parse(localStorage.getItem(KEY)); } catch (e) {}
+    if (isBlank() && (!db || !db.blank)) db = blank();
+    if (!db || db.v !== 14 || (db.staff && db.staff[0] && db.staff[0].accent !== BASE_STAFF[0].accent) || !db.bookings || (!db.blank && (!db.bookings.length || !db.bookings.some((b) => lkey(b.start) === lkey(at(0, 0)))))) db = isBlank() ? blank() : seed();
+  }
+  if (db && !db.income) db.income = [];
+
+  const cache = () => { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) {} };
+  const log = (action, ref, by) => { db.audit.unshift({ id: 'a' + Date.now() + Math.floor(Math.random() * 1e4), at: new Date().toISOString(), action, ref, by, _new: true }); if (db.audit.length > 200) db.audit.length = 200; };
   const nextRef = (kind) => kind + pad(++db.counters[kind]);
+
+  // ---------------- field mapping (app <-> DB) ----------------
+  const PAY_LBL = { card: 'Paid by card', whish: 'Whish Money', omt: 'OMT Pay', cash: 'Pay at studio', cod: 'Cash on delivery', gift: 'Gift balance' };
+  const payCode = (l) => { const s = String(l == null ? '' : l).toLowerCase(); if (s.includes('card')) return 'card'; if (s.includes('whish')) return 'whish'; if (s.includes('omt')) return 'omt'; if (s.includes('on delivery') || s === 'cod') return 'cod'; if (s.includes('gift')) return 'gift'; if (s.includes('studio') || s.includes('cash') || s === 'later') return 'cash'; return s || 'cash'; };
+  const startFrom = (date, sm) => date ? new Date(new Date(date + 'T00:00:00').getTime() + (sm || 0) * 6e4).toISOString() : null;
+  const hmOf = (isoS) => { const t = new Date(isoS); return String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0'); };
+  let profileIds = new Set(), clientIds = new Set();
+
+  const deriveDesk = (r) => { const st = String(r.status || ''); if (/cancel/i.test(st)) return 'cancelled'; if (r.final && typeof r.final.total === 'number') return 'settled'; if (r.pay_status === 'pending' || /await/i.test(st)) return 'held'; return 'confirmed'; };
+  const fromBk = (r) => ({ ref: r.ref, clientId: r.client_id || r.user_id || null, staff: r.staff_name || (typeof r.staff === 'string' ? r.staff : (r.staff && r.staff.name) || ''), services: (r.services || []).map((n, i) => ({ name: n, mins: (r.service_mins || [])[i] || 0, price: null })), start: r.start_min != null ? startFrom(r.date, r.start_min) : (r.date ? new Date(r.date + 'T' + (r.time || '12:00')).toISOString() : null), mins: r.mins, price: r.price, pay: payCode(r.pay), paid: r.paid || 0, due: r.due || 0, gift: r.gift && r.gift.amount ? r.gift.amount : 0, giftParts: (r.gift && r.gift.parts) || r.gift_parts || [], extra: (r.extra || []).map((e) => ({ amount: e.amount, pay: payCode(e.pay), status: e.status, deadline: e.deadline, placedAt: e.placedAt })), payStatus: r.pay_status, status: r.desk_status || deriveDesk(r), deadline: r.pay_deadline, final: r.final && typeof r.final.total === 'number' ? r.final.total : null, settleMethod: r.settle_method, tip: r.tip, discount: r.discount, gross: r.gross, level: r.level, settledAt: r.settled_at, arrivedAt: r.arrived_at, refund: r.refund || 0, refundSent: r.refund_sent, source: r.source || 'web', notes: r.notes, mood: r.mood, flags: r.flags || [], visit: r.visit, cat: r.cat, products: r.products || [], order: r.order_plan || null, placedAt: r.placed_at ? new Date(r.placed_at).getTime() : undefined, cancelReason: r.cancel_reason, completed: !!r.completed, created: r.created_at });
+  const toBk = (b) => { const isProf = b.clientId && profileIds.has(b.clientId); const isCli = b.clientId && clientIds.has(b.clientId); return { ref: b.ref, user_id: isProf ? b.clientId : null, client_id: isCli ? b.clientId : (UUID.test(b.clientId || '') && !isProf ? b.clientId : null), services: (b.services || []).map((s) => s.name), service_mins: (b.services || []).map((s) => s.mins || 0), staff: b.staff || null, staff_name: b.staff || null, date: b.start ? lkey(b.start) : null, start_min: b.start ? (new Date(b.start).getHours() * 60 + new Date(b.start).getMinutes()) : null, time: b.start ? hmOf(b.start) : null, mins: b.mins || null, price: b.price || 0, pay: PAY_LBL[b.pay] || b.pay || null, paid: b.paid || 0, due: b.due || 0, refund: b.refund || 0, gift: b.gift ? { amount: b.gift, parts: b.giftParts || [] } : {}, extra: (b.extra || []).map((e) => ({ amount: e.amount, pay: PAY_LBL[e.pay] || e.pay, status: e.status, deadline: e.deadline, placedAt: e.placedAt })), status: /cancel/i.test(b.status || '') ? 'Cancelled' : (b.payStatus === 'pending' || b.status === 'held') ? 'Awaiting payment' : 'Upcoming', pay_status: b.payStatus || null, completed: b.status === 'settled' || !!b.completed, final: (b.final != null) ? { total: b.final, method: b.settleMethod, tip: b.tip, discount: b.discount, at: b.settledAt } : null, desk_status: b.status || null, source: b.source || null, settled_at: b.settledAt || null, settle_method: b.settleMethod || null, tip: b.tip || null, discount: b.discount || null, gross: b.gross || null, level: b.level || null, refund_sent: !!b.refundSent, arrived_at: b.arrivedAt || null, visit: b.visit || null, cat: b.cat || null, products: b.products || [], order_plan: b.order || null, notes: b.notes || null, mood: b.mood || null, flags: b.flags || [], pay_deadline: b.deadline || null, placed_at: b.placedAt ? new Date(b.placedAt).toISOString() : null, cancel_reason: b.cancelReason || null }; };
+
+  const fromOr = (r) => ({ ref: r.ref, clientId: r.user_id || null, name: r.name, phone: r.phone, email: r.email, items: r.items || [], total: r.total, method: payCode(r.method || r.pay), status: r.status, payStatus: r.pay_status, fulfil: r.fulfil || ((r.address && (r.address.text || r.address.line1)) ? 'delivery' : 'pickup'), delivery: r.delivery || 0, address: (r.address && (r.address.text || r.address)) || '', discount: r.discount || 0, tier: r.tier, gift: (r.gift && r.gift.amount) ? r.gift : null, giftParts: (r.gift && r.gift.parts) || r.gift_parts || [], courier: r.courier || null, source: r.source || 'web', soldBy: r.sold_by, refund: r.refund || 0, refundSent: r.refund_sent, partial: r.partial, cardLink: r.card_link, placedAt: r.placed_at ? new Date(r.placed_at).getTime() : undefined, deadline: r.deadline || r.pay_deadline, cancelReason: r.cancel_reason, cancelledAt: r.cancelled_at, notes: r.notes, toPay: r.to_pay });
+  const toOr = (o) => ({ ref: o.ref, user_id: (o.clientId && profileIds.has(o.clientId)) ? o.clientId : null, items: o.items || [], total: o.total || 0, method: o.method || null, pay: PAY_LBL[o.method] || o.pay || null, name: o.name || null, phone: o.phone || null, email: o.email || null, address: typeof o.address === 'string' ? { text: o.address } : (o.address || {}), status: o.status || 'placed', pay_status: o.payStatus || null, discount: o.discount || 0, tier: o.tier || null, gift: o.gift || null, gift_parts: o.giftParts || [], courier: o.courier || null, source: o.source || null, sold_by: o.soldBy || null, refund: o.refund || 0, refund_sent: !!o.refundSent, partial: !!o.partial, fulfil: o.fulfil || null, delivery: o.delivery || 0, card_link: o.cardLink || null, deadline: o.deadline || null, cancelled_at: o.cancelledAt || null, cancel_reason: o.cancelReason || null, notes: o.notes || null, to_pay: (o.toPay != null ? o.toPay : null), placed_at: o.placedAt ? new Date(o.placedAt).toISOString() : null });
+
+  const fromGf = (r) => ({ code: r.code, amount: r.amount, balance: r.balance, buyerId: r.buyer_id, buyerName: r.buyer_name, buyerPhone: r.buyer_phone, from: r.from_name, to: r.to_name, toPhone: r.to_phone, message: r.msg, method: payCode(r.pay), status: r.status, hold: r.hold, createdAt: r.created_at, expiry: r.expires_at, deadline: r.deadline, redemptions: r.redemptions || [], uses: r.uses || r.redemptions || [], cancelReason: r.cancel_reason, soldBy: r.sold_by, color: r.color });
+  const toGf = (g) => ({ code: g.code, amount: g.amount, balance: g.balance, buyer_id: (g.buyerId && profileIds.has(g.buyerId)) ? g.buyerId : null, buyer_name: g.buyerName || (g.buyerId && (db.clients.find((c) => c.id === g.buyerId) || {}).name) || null, buyer_phone: g.buyerPhone || null, from_name: g.from || null, to_name: g.to || null, to_phone: g.toPhone || null, msg: g.message || null, pay: PAY_LBL[g.method] || g.method || null, status: g.status || 'Reserved', hold: !!g.hold, confirmed: g.status !== 'Reserved', created_at: g.createdAt || new Date().toISOString(), expires_at: g.expiry || null, deadline: g.deadline || null, redemptions: g.uses || g.redemptions || [], uses: g.uses || [], cancel_reason: g.cancelReason || null, sold_by: g.soldBy || null, color: g.color || null });
+
+  const fromProd = (r) => ({ id: r.id, name: r.name, brand: r.brand || '', price: r.price, cost: r.cost != null ? Number(r.cost) : Math.round((r.price || 0) * 0.55), stock: r.stock || 0, low: r.low || 0, restocks: 0, sold30: 0, active: r.active !== false, image: r.image_url || null, category: r.category || r.cat || 'Home', desc: r.descr || r.details || r.note || '', sku: r.sku || '' });
+  const toProd = (p) => { if (!UUID.test(p.id || '')) p.id = uuid(); return { id: p.id, name: p.name, price: p.price || 0, cost: p.cost || 0, stock: p.stock || 0, low: p.low || 0, image_url: p.image || null, category: p.category || null, cat: p.category || null, descr: p.desc || null, sku: p.sku || null, active: p.active !== false }; };
+
+  const fromStaff = (r) => ({ name: r.name, cats: r.cats || [], role: r.role, accent: r.accent, bio: r.bio || '', photo: r.photo_url || null, phone: r.phone || '', commission: r.commission != null ? Number(r.commission) : 0, days: r.days || [], start: r.start_hour != null ? Number(r.start_hour) : 10, end: r.end_hour != null ? Number(r.end_hour) : 19, timeOff: r.time_off || [], services: r.services || [], active: r.active !== false });
+  const toStaff = (s) => ({ name: s.name, cats: s.cats || [], role: s.role || null, accent: s.accent || null, bio: s.bio || null, photo_url: s.photo || null, phone: s.phone || null, commission: s.commission || 0, days: s.days || [], start_hour: s.start != null ? s.start : null, end_hour: s.end != null ? s.end : null, time_off: s.timeOff || [], services: s.services || [], active: s.active !== false });
+
+  const fromProfile = (p) => ({ id: p.id, name: p.name || '', phone: p.phone || '', email: p.email || '', birthday: p.birthday || '', tier: p.tier || 'Member', photo: p.photo_url || null, spend12: p.spend_12mo || 0, since: p.created_at, notes: (p.prefs && p.prefs.notes) || '', tags: (p.prefs && p.prefs.tags) || [], newsletter: (p.prefs && p.prefs.newsletter) || false, blocked: (p.prefs && p.prefs.blocked) || false, no_shows: (p.prefs && p.prefs.no_shows) || 0, prefs: p.prefs || null, _src: 'profile' });
+  const fromClientRow = (c) => ({ id: c.id, name: c.name || '', phone: c.phone || '', email: c.email || '', birthday: c.birthday || '', tier: c.tier || 'Member', photo: c.photo_url || null, spend12: c.spend || 0, since: c.created_at, notes: c.notes || c.note || '', tags: c.tags || [], newsletter: c.newsletter || false, blocked: c.blocked || false, no_shows: c.no_shows || 0, instagram: c.instagram, tiktok: c.tiktok, lastVisit: c.last_visit, prefs: c.prefs || null, _src: 'client' });
+
+  const fromSupplier = (r) => ({ id: r.id, name: r.name, contact: r.contact, phone: r.phone, email: r.email, brands: r.brands, terms: r.terms, lead: r.lead_days, notes: r.notes });
+  const toSupplier = (s) => ({ id: s.id, name: s.name || null, contact: s.contact || null, phone: s.phone || null, email: s.email || null, brands: s.brands || null, terms: s.terms || null, lead_days: s.lead != null ? s.lead : null, notes: s.notes || null });
+  const fromPO = (r) => ({ id: r.id, supplierId: r.supplier_id, status: r.status, createdAt: r.created_at, expected: r.expected, receivedAt: r.received_at, items: r.items || [], notes: r.notes, by: r.by, unpaid: r.unpaid, terms: r.terms, partAmt: r.part_amt, dueDays: r.due_days, dueBy: r.due_by, shortBy: r.short_by });
+  const toPO = (p) => ({ id: p.id, supplier_id: p.supplierId || null, status: p.status || 'draft', created_at: p.createdAt || new Date().toISOString(), expected: p.expected || null, received_at: p.receivedAt || null, items: p.items || [], notes: p.notes || null, by: p.by || null, unpaid: !!p.unpaid, terms: p.terms || null, part_amt: p.partAmt != null ? p.partAmt : null, due_days: p.dueDays != null ? p.dueDays : null, due_by: p.dueBy || null, short_by: p.shortBy || null });
+  const fromSupply = (r) => ({ id: r.id, name: r.name, brand: r.brand, cat: r.cat, unit: r.unit, qty: r.qty, low: r.low, cost: r.cost != null ? Number(r.cost) : 0, supplierId: r.supplier_id, lastIn: r.last_in, log: r.log || [] });
+  const toSupply = (s) => ({ id: s.id, name: s.name || null, brand: s.brand || null, cat: s.cat || null, unit: s.unit || null, qty: s.qty || 0, low: s.low || 0, cost: s.cost || 0, supplier_id: s.supplierId || null, last_in: s.lastIn || null, log: s.log || [] });
+  const fromExpense = (r) => ({ id: r.id, category: r.category, label: r.label, amount: Number(r.amount), date: r.date, method: r.method, planned: r.planned, due: r.due, fixedId: r.fixed_id, month: r.month, paidAt: r.paid_at, by: r.by });
+  const toExpense = (e) => ({ id: e.id, category: e.category || null, label: e.label || null, amount: e.amount || 0, date: e.date || new Date().toISOString(), method: e.method || null, planned: !!e.planned, due: e.due || null, fixed_id: e.fixedId || null, month: e.month || null, paid_at: e.paidAt || null, by: e.by || null });
+  const fromIncome = (r) => ({ id: r.id, label: r.label, amount: Number(r.amount), method: r.method, date: r.date });
+  const toIncome = (i) => ({ id: i.id, label: i.label || null, amount: i.amount || 0, method: i.method || null, date: i.date || new Date().toISOString() });
+  const fromPayout = (r) => ({ id: r.id, staff: r.staff, amount: Number(r.amount), at: r.at, note: r.note });
+  const toPayout = (p) => ({ id: p.id, staff: p.staff || null, amount: p.amount || 0, at: p.at || new Date().toISOString(), note: p.note || null });
+  const fromBlock = (r) => ({ id: r.id, staff: r.staff, start: r.start, mins: r.mins, label: r.label });
+  const toBlock = (b) => ({ id: b.id, staff: b.staff || null, start: b.start || null, mins: b.mins || 0, label: b.label || null });
+  const fromUser = (r) => ({ phone: r.phone, name: r.name, role: r.role, staff: r.staff, modules: r.modules || [], flags: r.flags || {}, active: r.active !== false, added: r.added, _id: r.id });
+
+  const err = (label, e) => { if (e) console.warn('[mgmt] ' + label, e.message || e); };
+  const sel = async (t, cols) => { try { const { data, error } = await SB.from(t).select(cols || '*'); if (error) { err(t, error); return []; } return data || []; } catch (e) { err(t, e); return []; } };
+
+  // ---------------- hydrate: pull everything into the app shapes ----------------
+  let snap = {};
+  const clientKey = (c) => JSON.stringify({ name: c.name, email: c.email, birthday: c.birthday, photo: c.photo, notes: c.notes, tags: c.tags, newsletter: c.newsletter, blocked: c.blocked, no_shows: c.no_shows, tier: c.tier, phone: c.phone, src: c._src });
+  const snapshot = () => { const s = {}; Object.keys(SYNC).forEach((k) => { s[k] = {}; (db[k] || []).forEach((row) => { const key = SYNC[k].pk(row); if (key != null) s[k][key] = JSON.stringify(SYNC[k].to(row)); }); }); s.clients = {}; (db.clients || []).forEach((c) => { if (c.id != null) s.clients[c.id] = clientKey(c); }); snap = s; };
+
+  const hydrate = async () => {
+    if (!online) return;
+    const [bk, od, gf, wp, ws, prof, cli, sup, po, sp, ex, inc, po2, bl, du, wl, nl, au, cfg, gal, spc, pg, rc] = await Promise.all([
+      sel('bookings'), sel('orders'), sel('gift_cards'), sel('web_products'), sel('web_staff'),
+      sel('profiles'), sel('clients'), sel('suppliers'), sel('purchase_orders'), sel('supplies'),
+      sel('expenses'), sel('income'), sel('payouts'), sel('blocks'), sel('desk_users'),
+      sel('wa_log'), sel('newsletter'), sel('audit'), sel('web_config'), sel('web_gallery'),
+      sel('web_space'), sel('web_pages'), sel('ref_counters'),
+    ]);
+    const shf = await sel('shifts');
+    // clients = profiles ∪ clients, deduped by phone (profile identity wins)
+    profileIds = new Set(prof.map((p) => p.id)); clientIds = new Set(cli.map((c) => c.id));
+    const byPhone = {}; const clients = [];
+    prof.map(fromProfile).forEach((c) => { const k = digitsP(c.phone); if (k) byPhone[k] = c; clients.push(c); });
+    cli.map(fromClientRow).forEach((c) => { const k = digitsP(c.phone); if (k && byPhone[k]) { const p = byPhone[k]; ['notes', 'tags', 'birthday', 'email'].forEach((f) => { if (!p[f] || (Array.isArray(p[f]) && !p[f].length)) p[f] = c[f]; }); if (c.no_shows > (p.no_shows || 0)) p.no_shows = c.no_shows; return; } clients.push(c); if (k) byPhone[k] = c; });
+    db.clients = clients;
+    db.bookings = bk.map(fromBk);
+    db.orders = od.map(fromOr);
+    db.gifts = gf.map(fromGf);
+    db.products = wp.length ? wp.map(fromProd) : db.products;
+    db.staff = ws.length ? ws.map(fromStaff) : db.staff;
+    db.suppliers = sup.map(fromSupplier);
+    db.purchases = po.map(fromPO);
+    db.supplies = sp.map(fromSupply);
+    db.expenses = ex.map(fromExpense);
+    db.income = inc.map(fromIncome);
+    db.payouts = po2.map(fromPayout);
+    db.blocks = bl.map(fromBlock);
+    db.users = du.filter((u) => u.phone).map(fromUser);
+    db.messages = wl.map((r) => ({ id: r.id, at: r.created_at, ref: r.ref, template: r.template || r.kind, to: r.phone, name: (clients.find((c) => digitsP(c.phone) === digitsP(r.phone)) || {}).name || '', status: 'delivered', from: 'studio' }));
+    db.newsletter = nl.map((r) => ({ phone: r.phone, name: (clients.find((c) => digitsP(c.phone) === digitsP(r.phone)) || {}).name || '', at: r.created_at }));
+    db.audit = au.map((r) => ({ id: r.id, at: r.at, action: r.action, ref: r.ref, by: r.by })).sort((a, b) => a.at < b.at ? 1 : -1).slice(0, 200);
+    // shifts nested
+    const S = {}; shf.forEach((r) => { S[r.staff] = S[r.staff] || {}; S[r.staff][r.date] = r.off ? { off: true, label: r.label || 'Off' } : { off: false, start: r.start_hour != null ? Number(r.start_hour) : undefined, end: r.end_hour != null ? Number(r.end_hour) : undefined, label: r.label || 'Shift' }; }); db.shifts = S;
+    // settings: merge known web_config keys over the seed defaults (read-only for now)
+    const cmap = {}; cfg.forEach((r) => { cmap[r.key] = r.value; });
+    ['hours', 'closedDates', 'ticker', 'tickerOn', 'reviewsOn', 'tiers', 'holdDays', 'transferHours', 'payments', 'qr', 'shop', 'home', 'announcement', 'fixedCosts', 'openingBalance', 'studio', 'payTo', 'transferHoursBy', 'music', 'musicOn', 'address', 'city', 'maps', 'email', 'instagram', 'tiktok', 'wa'].forEach((k) => { if (cmap[k] !== undefined) db.settings[k] = cmap[k]; });
+    if (gal.length) db.settings.gallery = gal.map((g) => ({ id: g.id, image: g.image_url, caption: g.caption, cat: g.category }));
+    if (spc.length) db.settings.space = spc.map((s) => ({ id: s.id, image: s.image_url, caption: s.caption }));
+    if (pg.length) { db.settings.legal = db.settings.legal || {}; pg.forEach((p) => { db.settings.legal[p.key] = p.body; }); }
+    // counters from ref_counters (so desk refs continue the site series)
+    const cc = {}; rc.forEach((r) => { cc[r.prefix] = Number(r.n) || 0; }); db.counters = Object.assign({ BK: 0, OR: 0, GF: 0, PO: 0 }, cc);
+    db.blank = false; db.online = true;
+    snapshot(); cache(); notify('hydrate');
+  };
+
+  // ---------------- write-back: snapshot-diff upsert (only rows the desk touched) ----------------
+  const SYNC = {
+    bookings:  { table: 'bookings',        pk: (r) => r.ref,  to: toBk,      keyCol: 'ref' },
+    orders:    { table: 'orders',          pk: (r) => r.ref,  to: toOr,      keyCol: 'ref' },
+    gifts:     { table: 'gift_cards',      pk: (r) => r.code, to: toGf,      keyCol: 'code' },
+    products:  { table: 'web_products',    pk: (r) => r.id,   to: toProd,    keyCol: 'id' },
+    suppliers: { table: 'suppliers',       pk: (r) => r.id,   to: toSupplier,keyCol: 'id' },
+    purchases: { table: 'purchase_orders', pk: (r) => r.id,   to: toPO,      keyCol: 'id' },
+    supplies:  { table: 'supplies',        pk: (r) => r.id,   to: toSupply,  keyCol: 'id' },
+    expenses:  { table: 'expenses',        pk: (r) => r.id,   to: toExpense, keyCol: 'id' },
+    income:    { table: 'income',          pk: (r) => r.id,   to: toIncome,  keyCol: 'id' },
+    payouts:   { table: 'payouts',         pk: (r) => r.id,   to: toPayout,  keyCol: 'id' },
+    blocks:    { table: 'blocks',          pk: (r) => r.id,   to: toBlock,   keyCol: 'id' },
+    staff:     { table: 'web_staff',       pk: (r) => r.name, to: toStaff,   keyCol: 'name' },
+  };
+
+  let syncing = false, pending = false;
+  const syncUp = async () => {
+    if (!online) return;
+    if (syncing) { pending = true; return; }
+    syncing = true;
+    try {
+      for (const k of Object.keys(SYNC)) {
+        const cfgv = SYNC[k]; const cur = {}; const ups = [];
+        (db[k] || []).forEach((row) => { const id = cfgv.pk(row); if (id == null) return; const mapped = cfgv.to(row); const js = JSON.stringify(mapped); cur[cfgv.pk(row)] = js; if (snap[k] && snap[k][cfgv.pk(row)] === js) return; ups.push(mapped); });
+        // deletions: keys present in snapshot, gone now
+        const dels = Object.keys(snap[k] || {}).filter((id) => !(id in cur));
+        if (ups.length) { const { error } = await SB.from(cfgv.table).upsert(ups, { onConflict: cfgv.keyCol }); err('upsert ' + cfgv.table, error); }
+        if (dels.length) { const { error } = await SB.from(cfgv.table).delete().in(cfgv.keyCol, dels); err('delete ' + cfgv.table, error); }
+      }
+      // clients (routed by source), shifts, desk_users, audit — handled explicitly
+      await syncClients(); await syncShifts(); await syncUsers(); await syncAudit();
+      snapshot();
+      // keep the site ref series ahead of the desk counters (best-effort)
+      for (const p of ['BK', 'OR', 'GF', 'PO']) { const n = db.counters[p]; if (n) { try { await SB.rpc('bump_ref', { p_prefix: p, p_to: n }); } catch (e) {} } }
+    } catch (e) { err('syncUp', e); }
+    syncing = false;
+    if (pending) { pending = false; syncUp(); }
+  };
+
+  const syncClients = async () => {
+    const profs = [], cliRows = [];
+    const cs = (snap.clients || {});
+    (db.clients || []).forEach((c) => {
+      if (cs[c.id] !== undefined && cs[c.id] === clientKey(c)) return;   // unchanged since hydrate — never clobber a site-side edit
+      if (c._src === 'profile' && profileIds.has(c.id)) {
+        profs.push({ id: c.id, name: c.name || null, email: c.email || null, birthday: c.birthday || null, photo_url: c.photo || null, prefs: Object.assign({}, c.prefs || {}, { notes: c.notes || '', tags: c.tags || [], newsletter: !!c.newsletter, blocked: !!c.blocked, no_shows: c.no_shows || 0 }) });
+      } else {
+        if (!UUID.test(c.id || '')) c.id = uuid(); c._src = 'client'; clientIds.add(c.id);
+        cliRows.push({ id: c.id, name: c.name || null, phone: c.phone || null, email: c.email || null, birthday: c.birthday || null, tier: c.tier || null, tags: c.tags || [], newsletter: !!c.newsletter, blocked: !!c.blocked, photo_url: c.photo || null, no_shows: c.no_shows || 0, notes: c.notes || null, note: c.notes || null, instagram: c.instagram || null, tiktok: c.tiktok || null, prefs: c.prefs || null });
+      }
+    });
+    if (profs.length) { const { error } = await SB.from('profiles').upsert(profs, { onConflict: 'id' }); err('profiles', error); }
+    if (cliRows.length) { const { error } = await SB.from('clients').upsert(cliRows, { onConflict: 'id' }); err('clients', error); }
+  };
+  const syncShifts = async () => {
+    const rows = []; const S = db.shifts || {};
+    Object.keys(S).forEach((staff) => Object.keys(S[staff]).forEach((date) => { const v = S[staff][date]; rows.push({ staff, date, off: !!v.off, start_hour: v.start != null ? v.start : null, end_hour: v.end != null ? v.end : null, label: v.label || null }); }));
+    if (rows.length) { const { error } = await SB.from('shifts').upsert(rows, { onConflict: 'staff,date' }); err('shifts', error); }
+  };
+  const syncUsers = async () => {
+    for (const u of (db.users || [])) {
+      const row = { phone: u.phone, name: u.name || null, role: u.role || 'desk', staff: u.staff || null, modules: u.modules || [], flags: u.flags || {}, active: u.active !== false };
+      if (u._id) { const { error } = await SB.from('desk_users').update(row).eq('id', u._id); err('desk_users upd', error); }
+      else { const { data, error } = await SB.from('desk_users').insert(row).select('id').maybeSingle(); err('desk_users ins', error); if (data) u._id = data.id; }
+    }
+  };
+  const syncAudit = async () => {
+    const neu = (db.audit || []).filter((a) => a._new);
+    if (!neu.length) return;
+    const rows = neu.map((a) => ({ at: a.at, action: a.action, ref: a.ref || null, by: a.by || null }));
+    const { error } = await SB.from('audit').insert(rows); err('audit', error);
+    if (!error) neu.forEach((a) => { delete a._new; });
+  };
+
+  let saveT = null;
+  const save = (what) => { cache(); notify(what); if (online) { clearTimeout(saveT); saveT = setTimeout(syncUp, 500); } };
+  const reset = (mode) => {
+    if (online) { hydrate(); return; }   // never wipe the server from the desk; just re-pull
+    try { if (mode === 'blank') localStorage.setItem(BLANK, '1'); else localStorage.removeItem(BLANK); } catch (e) {}
+    db = mode === 'blank' ? blank() : seed(); cache(); notify('reset');
+  };
+  const clear = () => { db = online ? (function () { const b = blank(); b.online = true; b.blank = false; return b; })() : blank(); try { localStorage.removeItem(KEY); } catch (e) {} snap = {}; notify('reset'); };
 
   const money = (n) => { const v = Math.abs(Math.round(n * 100) / 100); return (n < 0 ? '−' : '') + '$' + v.toLocaleString('en-US', { minimumFractionDigits: Number.isInteger(v) ? 0 : 2, maximumFractionDigits: 2 }); };
   const dt = (iso) => new Date(iso);
@@ -300,5 +502,5 @@
   // Backbar adjustments: delta<0 = used, >0 = received. Keeps a short log per item.
   const adjustSupply = (id, delta, note, who) => { const s = (db.supplies || []).find((x) => x.id === id); if (!s) return null; s.qty = Math.max(0, s.qty + delta); if (delta > 0) s.lastIn = new Date().toISOString(); s.log = (s.log || []); s.log.unshift({ at: new Date().toISOString(), delta, note: note || '', by: who || '' }); if (s.log.length > 30) s.log.length = 30; return s; };
   const setShift = (staff, dateIso, val) => { db.shifts = db.shifts || {}; db.shifts[staff] = db.shifts[staff] || {}; const k = lkey(dateIso); if (val == null) delete db.shifts[staff][k]; else db.shifts[staff][k] = val; };
-  window.IncensoMgmt = { digits, hoursOn, isStudioClosed, setHours, specialOn, hoursForDate, accentFor, tierObj, discountFor, clientByPhone, upsertClient, setProfile, syncFromAuth, visits, sweep, adjustSupply, giftPool, giftBalance, redeemGift, refundGift, visitOf, shiftFor, setShift, get db() { return db; }, save, reset, log, nextRef, on: (f) => listeners.add(f), off: (f) => listeners.delete(f), money, fmtTime, fmtDay, fmtDate, fmtDT, isSameDay, dayKey, lkey, rel, until, at, T0, DAY, PAY_LABEL, client, staffOf, bookingPieces, spend12, tierFor, KEY, MODULES, FLAGS, PRESETS, mkUser, hm: (iso) => { const t = new Date(iso); return t.getHours() + t.getMinutes() / 60; } };
+  window.IncensoMgmt = { digits, hoursOn, isStudioClosed, setHours, specialOn, hoursForDate, accentFor, tierObj, discountFor, clientByPhone, upsertClient, setProfile, syncFromAuth, visits, sweep, adjustSupply, giftPool, giftBalance, redeemGift, refundGift, visitOf, shiftFor, setShift, get db() { return db; }, online, hydrate, clear, save, reset, log, nextRef, on: (f) => listeners.add(f), off: (f) => listeners.delete(f), money, fmtTime, fmtDay, fmtDate, fmtDT, isSameDay, dayKey, lkey, rel, until, at, T0, DAY, PAY_LABEL, client, staffOf, bookingPieces, spend12, tierFor, KEY, MODULES, FLAGS, PRESETS, mkUser, hm: (iso) => { const t = new Date(iso); return t.getHours() + t.getMinutes() / 60; } };
 })();

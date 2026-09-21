@@ -58,3 +58,30 @@ so the app fits the live site without changing it:
 
 Nothing in Phase B is destructive to the ~existing customer data; desk changes are additive
 columns + upserts of rows the desk actually touches.
+
+### Phase B status
+**Done & smoke-tested (offline + mocked-online):**
+- Additive v3.7 schema on the live DB: desk_users phone model + `is_desk()` by phone (owner
+  +905457471711 seeded); desk columns on bookings/orders/gift_cards/clients/purchase_orders;
+  new tables `supplies`, `income`; finance columns on `expenses`; RLS on everything via
+  `is_desk()`; `studio` Storage bucket + upload policies; `bump_ref` RPC; upsert keys.
+- `data.js` swapped to a **Supabase-backed cache**: `hydrate()` reads every collection into
+  the app shapes (clients = profiles ∪ clients merged by phone); `save()` → debounced
+  **snapshot-diff** write-back (upserts only rows the desk changed, deletes removed ones;
+  clients never overwrite an unchanged/site-side row). Shared tables written in the site's
+  vocabulary (status labels, pay labels, staff-as-string, settled-via-final) via additive
+  desk columns, so the customer pages keep reading them unchanged.
+- `app.js`: own WhatsApp-OTP sign-in gate for the manage subdomain (IncensoAuth + desk_users
+  allow-list), hydrate-before-boot, real sign-out, prototype demo tools hidden when online.
+
+**Still to wire (next pass):**
+- Settings **writes** (web_config: hours/tiers/payments/QR/shop/home; gallery/space/legal) —
+  currently hydrated read-only.
+- Services & prices editing (site uses `catalog.js`; needs a services source to persist to).
+- WhatsApp sends on desk actions (confirm transfer, settle receipt, reminders) via `send_wa`
+  + `incenso_*` templates.
+- Image uploads to the `studio` Storage bucket (picker still returns data URLs).
+- Stripe card links for desk-created orders/bookings.
+- `/book` availability reading `shiftFor` (site-side follow-up).
+
+Not live until merged to `main` + `manage.` DNS is pointed.

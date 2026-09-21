@@ -31,9 +31,29 @@
   const A = window.IncensoAuth;
   const digits = (p) => String(p || '').replace(/\D/g, '');
   const deskUser = () => { if (!A || !A.signedIn()) return null; const acc = A.get(); return M.db.users.find((u) => u.active !== false && digits(u.phone) === digits(acc.phone)) || null; };
-  // No gate screen: anyone without whitelisted access is sent back to their account page (auth may still be hydrating — wait briefly for it before redirecting).
-  let gateTimer = null;
-  const gate = () => { document.body.innerHTML = ''; if (gateTimer) return; gateTimer = setTimeout(() => { if (!user) location.replace('account.html'); }, A && A.signedIn() ? 0 : 1500); };
+  // Own WhatsApp-OTP sign-in on this subdomain: the site's browser session is not shared
+  // cross-origin, so the desk signs in here with IncensoAuth (same account, same OTP), then
+  // the number is checked against the whitelist (desk_users, loaded by hydrate under RLS).
+  let hydrated = false;
+  const enter = async () => {
+    if (M.hydrate && M.online && !hydrated) { try { await M.hydrate(); } catch (e) {} hydrated = true; }
+    syncSession();
+    if (user) { setUser(user); boot(); } else gate('no');
+  };
+  const gate = (mode) => {
+    document.body.innerHTML = '';
+    const signedIn = A && A.signedIn();
+    if (signedIn && mode !== 'no') { enter(); return; }
+    const msg = (mode === 'no' && signedIn)
+      ? 'This number isn’t on the studio list. Ask an owner to add you under Settings → Who can sign in.'
+      : 'Sign in with your WhatsApp number. Only studio numbers can enter.';
+    const g = el('<div class="gate"><div class="gate-card">' + window.INCENSO_WORDMARK + '<h1>Studio management</h1><p>' + esc(msg) + '</p><button class="btn wide" data-in>' + (signedIn && mode === 'no' ? 'Use another number' : 'Sign in with WhatsApp') + '</button></div></div>');
+    g.querySelector('[data-in]').onclick = async () => {
+      if (signedIn && mode === 'no') { try { if (A) await A.signOut(); } catch (e) {} if (M.clear) M.clear(); hydrated = false; }
+      if (A) A.open(() => { hydrated = false; enter(); });
+    };
+    document.body.appendChild(g);
+  };
 
   // ---- shell ----
   let root, titleEl, current = null;
@@ -65,13 +85,15 @@
   const roleLabel = (u) => (M.PRESETS[u.role] ? M.PRESETS[u.role].label : u.role || 'Custom');
   // Display name comes from the website account (same sign-in); the access list only carries the permission
   M.roleLabel = roleLabel;
-  const signOut = async () => { setUser(null); try { localStorage.removeItem('incenso-desk-handoff'); } catch (e) {} if (window.IncensoAuth) await window.IncensoAuth.signOut(); location.href = 'index.html'; };
+  const signOut = async () => { setUser(null); try { localStorage.removeItem('incenso-desk-handoff'); } catch (e) {} if (M.clear) M.clear(); if (window.IncensoAuth) { try { await window.IncensoAuth.signOut(); } catch (e) {} } hydrated = false; gate(); };
   const meSheet = () => {
-    const b = el('<div class="stack"><div class="card pad"><div class="spread"><div><b>' + esc(user.name) + '</b><div class="note">' + esc(user.phone) + ' · ' + esc(roleLabel(user)) + '</div></div><span class="avatar">' + esc(U.initials(user.name)) + '</span></div></div><div class="card"><div class="list"></div></div><div class="two"><button class="btn ghost wide" data-blank>Start from zero</button><button class="btn ghost wide" data-reset>Load sample data</button></div></div>');
+    // Prototype-only demo tools (person switcher + sample data) are hidden on the live app.
+    const demo = !M.online;
+    const b = el('<div class="stack"><div class="card pad"><div class="spread"><div><b>' + esc(user.name) + '</b><div class="note">' + esc(user.phone) + ' · ' + esc(roleLabel(user)) + '</div></div><span class="avatar">' + esc(U.initials(user.name)) + '</span></div></div>' + (demo ? '<div class="card"><div class="list"></div></div><div class="two"><button class="btn ghost wide" data-blank>Start from zero</button><button class="btn ghost wide" data-reset>Load sample data</button></div>' : '') + '</div>');
     const l = b.querySelector('.list');
-    M.db.users.filter((u) => u.phone && u.active !== false).forEach((u) => l.appendChild(U.row({ lead: esc(U.initials(u.name)), title: esc(u.name), sub: esc(roleLabel(u)) + ' · ' + esc(u.phone), end: u.phone === user.phone ? U.pill('paid', 'You') : icon('chev'), onClick: () => { try { const cur = JSON.parse(localStorage.getItem('incenso-account')) || {}; localStorage.setItem('incenso-account', JSON.stringify(Object.assign(cur, { name: u.name, phone: u.phone }))); localStorage.setItem('incenso-signedin', '1'); localStorage.setItem('incenso-demo-account', '1'); } catch (e) {} s.close(true); location.hash = '#/home'; location.reload(); } })));
-    b.querySelector('[data-reset]').onclick = async () => { if (await U.confirm({ title: 'Load sample data?', text: 'Everything entered so far is discarded and sample bookings, clients and orders are generated for today.', ok: 'Load samples', danger: true })) { M.reset(); location.reload(); } };
-    b.querySelector('[data-blank]').onclick = async () => { if (await U.confirm({ title: 'Start from zero?', text: 'Removes every booking, client, order, gift card, expense and message. Staff, services, products and settings stay.', ok: 'Clear everything', danger: true })) { M.reset('blank'); location.reload(); } };
+    if (demo) M.db.users.filter((u) => u.phone && u.active !== false).forEach((u) => l.appendChild(U.row({ lead: esc(U.initials(u.name)), title: esc(u.name), sub: esc(roleLabel(u)) + ' · ' + esc(u.phone), end: u.phone === user.phone ? U.pill('paid', 'You') : icon('chev'), onClick: () => { try { const cur = JSON.parse(localStorage.getItem('incenso-account')) || {}; localStorage.setItem('incenso-account', JSON.stringify(Object.assign(cur, { name: u.name, phone: u.phone }))); localStorage.setItem('incenso-signedin', '1'); localStorage.setItem('incenso-demo-account', '1'); } catch (e) {} s.close(true); location.hash = '#/home'; location.reload(); } })));
+    if (demo) b.querySelector('[data-reset]').onclick = async () => { if (await U.confirm({ title: 'Load sample data?', text: 'Everything entered so far is discarded and sample bookings, clients and orders are generated for today.', ok: 'Load samples', danger: true })) { M.reset(); location.reload(); } };
+    if (demo) b.querySelector('[data-blank]').onclick = async () => { if (await U.confirm({ title: 'Start from zero?', text: 'Removes every booking, client, order, gift card, expense and message. Staff, services, products and settings stay.', ok: 'Clear everything', danger: true })) { M.reset('blank'); location.reload(); } };
     const s = U.sheet({ title: 'Signed in', sub: 'Switch role to preview what each person sees', body: b, foot: '<div style="display:grid;gap:8px;width:100%"><a class="btn soft wide" href="account.html">' + icon('globe') + 'Website</a><button class="btn ghost wide" data-o>Sign out</button></div>' });
     s.el.querySelector('[data-o]').onclick = signOut;
   };
@@ -133,5 +155,6 @@
   } };
   const MORE_SUB = { home: 'Today at a glance', supply: 'Purchase orders & stock-in', reports: 'Top services, occupancy, retention', today: 'Day & week by chair', bookings: 'All appointments', clients: 'Members & history', orders: 'Shop orders & courier', gifts: 'Activate, cancel, resend', products: 'Stock & restock alerts', money: 'Takings, payouts, P&L', staff: 'Schedules & days off', services: 'Menus & pricing', messages: 'WhatsApp log', settings: 'Hours, ticker, tiers' };
 
-  document.addEventListener('DOMContentLoaded', () => { syncSession(); if (user) { setUser(user); boot(); } else gate(); });
+  const start = () => { if (A && A.signedIn()) enter(); else gate(); };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
 })();
