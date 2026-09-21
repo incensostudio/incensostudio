@@ -4,19 +4,22 @@
   const SKEY = 'incenso-mgmt-session';
   M.views = {};
   const NAV = [
-    { grp: 'Front desk' }, { id: 'home', label: 'Dashboard' }, { id: 'today', label: 'Calendar' }, { id: 'bookings', label: 'Bookings' }, { id: 'clients', label: 'Clients' },
-    { grp: 'Shop' }, { id: 'orders', label: 'Orders' }, { id: 'gifts', label: 'Gift cards' }, { id: 'products', label: 'Products & stock' }, { id: 'supply', label: 'Suppliers & orders' },
-    { grp: 'Studio' }, { id: 'money', label: 'Finances' }, { id: 'reports', label: 'Reports' }, { id: 'staff', label: 'Staff' }, { id: 'services', label: 'Services & prices' }, { id: 'messages', label: 'Messages' }, { id: 'settings', label: 'Site settings' },
+    { grp: 'General' }, { id: 'home', label: 'Booking' }, { id: 'orders', label: 'Shop' }, { id: 'products', label: 'Stock' }, { id: 'gifts', label: 'Gift cards' }, { id: 'clients', label: 'Clients' }, { id: 'money', label: 'Finances' }, { id: 'settings', label: 'Settings', foot: true },
   ];
   M.NAV_LABEL = {}; NAV.forEach((n) => { if (n.id) M.NAV_LABEL[n.id] = n.label; });
-  const DETAIL_PARENT = { booking: 'bookings', client: 'clients', order: 'orders', gift: 'gifts', product: 'products', member: 'staff', setting: 'settings', po: 'supply', supplier: 'supply', rota: 'staff' };
-  const TAB_PREF = ['home', 'today', 'bookings', 'orders', 'money', 'gifts', 'clients', 'products', 'messages'];
-  const TAB_LABEL = { home: 'Home', today: 'Calendar', bookings: 'Bookings', orders: 'Orders', money: 'Money', gifts: 'Gifts', clients: 'Clients', products: 'Stock', messages: 'Messages', more: 'More' };
+  const DETAIL_PARENT = { booking: 'home', bookings: 'home', today: 'home', client: 'clients', order: 'orders', gift: 'gifts', product: 'products', po: 'products', supplier: 'products', member: 'settings', setting: 'settings', staff: 'settings', services: 'settings' };
+  const TAB_PREF = ['home', 'orders', 'money', 'gifts', 'clients'];
+  const TAB_LABEL = { home: 'Home', today: 'Calendar', bookings: 'Bookings', orders: 'Shop', products: 'Stock', money: 'Money', gifts: 'Gifts', clients: 'Clients', products: 'Stock', messages: 'Messages', more: 'More' };
   const perms = (u) => { const live = M.db.users.find((x) => x.phone === u.phone); return live || u; };
-  const allowed = (user, id) => { if (id === 'more') return true; const u = perms(user); if (u.active === false) return false; return !M.NAV_LABEL[id] || (u.modules || []).includes(id); };
+  const allowed = (user, id) => { if (id === 'more') return true; if (id === 'today' || id === 'bookings') id = 'home'; if (id === 'staff' || id === 'services') id = 'settings'; const u = perms(user); if (u.active === false) return false; return !M.NAV_LABEL[id] || (u.modules || []).includes(id); };
   const tabsFor = (user) => TAB_PREF.filter((t) => allowed(user, t)).slice(0, 4).concat(['more']);
 
   let user = null; try { user = JSON.parse(localStorage.getItem(SKEY)); } catch (e) {}
+  // The website account is the source of truth: drop any mgmt session whose number no longer matches / is no longer whitelisted.
+  const syncSession = () => { const A = window.IncensoAuth; if (!A) return;
+    // Handoff from account.html (Dashboard link): trust it for 5 minutes even if the auth session is still hydrating.
+    let ho = null; try { ho = JSON.parse(localStorage.getItem('incenso-desk-handoff')); } catch (e) {} if (ho && Date.now() - ho.at < 3e5) { const d0 = (p) => String(p || '').replace(/\D/g, ''); const hu = M.db.users.find((x) => x.active !== false && d0(x.phone) === d0(ho.phone)); if (hu) { if (!A.signedIn()) { try { const cur = JSON.parse(localStorage.getItem('incenso-account')) || {}; localStorage.setItem('incenso-account', JSON.stringify(Object.assign(cur, { name: ho.name, phone: ho.phone }))); localStorage.setItem('incenso-signedin', '1'); localStorage.setItem('incenso-demo-account', '1'); } catch (e) {} } user = Object.assign({}, hu); return; } }
+    if (!A.signedIn()) { user = null; return; } const acc = A.get(); const d = (p) => String(p || '').replace(/\D/g, ''); const u = M.db.users.find((x) => x.active !== false && d(x.phone) === d(acc.phone)); user = u ? Object.assign({}, u) : null; };
   const setUser = (u) => { user = u; if (u) localStorage.setItem(SKEY, JSON.stringify(u)); else localStorage.removeItem(SKEY); };
   M.user = () => user && perms(user);
   M.can = (id) => user && allowed(user, id);
@@ -24,59 +27,52 @@
   M.myStaff = () => { const u = M.user(); return u && u.flags && u.flags.ownOnly ? u.staff : null; };
 
   // ---- gate ----
-  const gate = () => {
-    document.body.innerHTML = '';
-    const g = el('<div class="gate"><div class="gate-card">' + window.INCENSO_WORDMARK + '<h1>Studio management</h1><p>Sign in with your WhatsApp number. Only studio numbers can enter.</p><form class="form" data-step="phone"><div class="field"><label>WhatsApp number</label><input name="phone" type="tel" inputmode="tel" placeholder="+961 71 930 290" required autocomplete="tel"></div><button class="btn wide" type="submit">Send code</button><div class="demo"><p class="eyebrow">Demo numbers · any 6-digit code works</p></div></form></div></div>');
-    const demo = g.querySelector('.demo');
-    M.db.users.filter((u) => u.phone && u.active !== false).slice(0, 4).forEach((u) => { const b = el('<button type="button">' + esc(u.name) + ' · ' + esc(roleLabel(u)) + '<span>' + esc(u.phone) + '</span></button>'); b.onclick = () => { g.querySelector('[name=phone]').value = u.phone; }; demo.appendChild(b); });
-    const form = g.querySelector('form');
-    form.onsubmit = (e) => {
-      e.preventDefault();
-      const phone = form.phone.value.replace(/\s+/g, '');
-      const u = M.db.users.find((x) => x.phone.replace(/\s+/g, '') === phone);
-      if (!u || u.active === false) { U.toast('This number is not on the studio list.'); return; }
-      // Real: IncensoAuth phone OTP (WhatsApp) → then check desk_users for role
-      form.innerHTML = '<p class="eyebrow">Code sent on WhatsApp to ' + esc(u.phone) + '</p><div class="otp">' + '<input inputmode="numeric" maxlength="1" pattern="[0-9]">'.repeat(6) + '</div><button class="btn wide" type="submit">Enter</button><button class="btn ghost wide" type="button" data-back>Different number</button>';
-      const ins = [...form.querySelectorAll('.otp input')]; ins[0].focus();
-      ins.forEach((i, k) => { i.oninput = () => { i.value = i.value.replace(/\D/g, '').slice(-1); if (i.value && ins[k + 1]) ins[k + 1].focus(); if (ins.every((x) => x.value)) form.requestSubmit(); }; i.onkeydown = (ev) => { if (ev.key === 'Backspace' && !i.value && ins[k - 1]) ins[k - 1].focus(); }; i.onpaste = (ev) => { const t = (ev.clipboardData.getData('text') || '').replace(/\D/g, ''); if (t.length === 6) { ev.preventDefault(); ins.forEach((x, j) => x.value = t[j]); form.requestSubmit(); } }; });
-      form.querySelector('[data-back]').onclick = gate;
-      form.onsubmit = (ev) => { ev.preventDefault(); if (!ins.every((x) => x.value)) return; setUser(u); M.log('sign-in', '', u.name); boot(); };
-    };
-    document.body.appendChild(g);
-  };
+  // Same account as the website (IncensoAuth). Access is granted only if the signed-in number is whitelisted in desk_users (M.db.users) and active.
+  const A = window.IncensoAuth;
+  const digits = (p) => String(p || '').replace(/\D/g, '');
+  const deskUser = () => { if (!A || !A.signedIn()) return null; const acc = A.get(); return M.db.users.find((u) => u.active !== false && digits(u.phone) === digits(acc.phone)) || null; };
+  // No gate screen: anyone without whitelisted access is sent back to their account page (auth may still be hydrating — wait briefly for it before redirecting).
+  let gateTimer = null;
+  const gate = () => { document.body.innerHTML = ''; if (gateTimer) return; gateTimer = setTimeout(() => { if (!user) location.replace('account.html'); }, A && A.signedIn() ? 0 : 1500); };
 
   // ---- shell ----
   let root, titleEl, current = null;
   const boot = () => {
+    M.syncFromAuth();
     document.body.innerHTML = '';
-    const shell = el('<div class="shell"><nav class="rail" aria-label="Sections"></nav><div class="main"><header class="top"><button class="icon-btn wm" aria-label="Incenso" data-home>' + window.INCENSO_WORDMARK.replace('viewBox="8 76 1282 226"', 'viewBox="972 69 324 240"') + '</button><div class="ttl"></div><div class="tb-r"><button class="icon-btn" data-search aria-label="Search">' + icon('search') + '</button><button class="icon-btn" data-me aria-label="Account"><span class="avatar">' + esc(U.initials(user.name)) + '</span></button></div></header><main class="content" id="view"></main></div><nav class="tabs" aria-label="Main"></nav></div>');
+    const shell = el('<div class="shell"><nav class="rail" aria-label="Sections"></nav><div class="main"><header class="top"><button class="icon-btn wm" aria-label="Incenso" data-home>' + window.INCENSO_WORDMARK.replace('viewBox="8 76 1282 226"', 'viewBox="972 69 324 240"') + '</button><div class="ttl"></div><div class="tb-r"><button class="icon-btn" data-search aria-label="Search">' + icon('search') + '</button><button class="icon-btn" data-me aria-label="Notifications">' + icon('bell') + '<span class="dot hide" data-badge="messages"></span></button></div></header><main class="content" id="view"></main></div><nav class="tabs" aria-label="Main"></nav></div>');
     root = shell.querySelector('#view'); titleEl = shell.querySelector('.ttl');
     const rail = shell.querySelector('.rail');
     rail.insertAdjacentHTML('beforeend', window.INCENSO_WORDMARK);
     let pendingGrp = null;
-    NAV.forEach((n) => { if (n.grp) { pendingGrp = n.grp; return; } if (!allowed(user, n.id)) return; if (pendingGrp) { rail.insertAdjacentHTML('beforeend', '<div class="grp">' + pendingGrp + '</div>'); pendingGrp = null; } rail.insertAdjacentHTML('beforeend', '<a href="#/' + n.id + '" data-nav="' + n.id + '">' + icon(n.id) + esc(n.label) + '<span class="dot hide" data-badge="' + n.id + '"></span></a>'); });
-    rail.insertAdjacentHTML('beforeend', '<div class="me"><span class="avatar">' + esc(U.initials(user.name)) + '</span><div>' + esc(user.name) + '<small>' + esc(roleLabel(user)) + '</small></div><button type="button" data-out>Sign out</button></div>');
+    NAV.forEach((n) => { if (n.grp) { pendingGrp = n.grp; return; } if (!allowed(user, n.id) || n.foot) return; if (pendingGrp) { rail.insertAdjacentHTML('beforeend', '<div class="grp">' + pendingGrp + '</div>'); pendingGrp = null; } rail.insertAdjacentHTML('beforeend', '<a href="#/' + n.id + '" data-nav="' + n.id + '">' + icon(n.id) + esc(n.label) + '<span class="dot hide" data-badge="' + n.id + '"></span></a>'); });
+    const prof = () => M.clientByPhone(user.phone);
+    const accName = () => { const p = prof(); return (p && p.name) || user.name || ''; };
+    const accAvatar = () => { const p = prof(); return p && p.photo ? '<span class="avatar"><img src="' + esc(p.photo) + '" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit"></span>' : '<span class="avatar">' + esc(U.initials(accName())) + '</span>'; };
+    rail.insertAdjacentHTML('beforeend', '<div class="rail-foot">' + NAV.filter((n) => n.foot && allowed(user, n.id)).map((n) => '<a href="#/' + n.id + '" data-nav="' + n.id + '">' + icon(n.id) + esc(n.label) + '<span class="dot hide" data-badge="' + n.id + '"></span></a>').join('') + '</div><div class="me"><div class="me-id">' + accAvatar() + '<div>' + esc(accName()) + '<small>' + esc(roleLabel(user)) + '</small></div></div><div class="me-acts"><a href="index.html">' + icon('globe') + 'Website</a><button type="button" data-out>Sign out</button></div></div>');
     rail.querySelector('[data-out]').onclick = signOut;
     const tabs = shell.querySelector('.tabs');
     const TABS = tabsFor(user);
     TABS.forEach((t) => tabs.insertAdjacentHTML('beforeend', '<a href="#/' + t + '" data-nav="' + t + '">' + icon(t === 'more' ? 'more' : t) + esc(TAB_LABEL[t]) + '<span class="dot hide" data-badge="' + t + '"></span></a>'));
     tabs.style.gridTemplateColumns = 'repeat(' + TABS.length + ',1fr)';
     shell.querySelector('[data-home]').onclick = () => { location.hash = '#/home'; };
-    shell.querySelector('[data-me]').onclick = meSheet;
+    shell.querySelector('[data-me]').onclick = () => meSheet();
     shell.querySelector('[data-search]').onclick = globalSearch;
     document.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); globalSearch(); } });
     document.body.appendChild(shell);
     render();
   };
   const roleLabel = (u) => (M.PRESETS[u.role] ? M.PRESETS[u.role].label : u.role || 'Custom');
+  // Display name comes from the website account (same sign-in); the access list only carries the permission
   M.roleLabel = roleLabel;
-  const signOut = () => { setUser(null); location.hash = ''; gate(); };
+  const signOut = async () => { setUser(null); try { localStorage.removeItem('incenso-desk-handoff'); } catch (e) {} if (window.IncensoAuth) await window.IncensoAuth.signOut(); location.href = 'index.html'; };
   const meSheet = () => {
-    const b = el('<div class="stack"><div class="card pad"><div class="spread"><div><b>' + esc(user.name) + '</b><div class="note">' + esc(user.phone) + ' · ' + esc(roleLabel(user)) + '</div></div><span class="avatar">' + esc(U.initials(user.name)) + '</span></div></div><div class="card"><div class="list"></div></div><button class="btn ghost wide" data-reset>Reset demo data</button></div>');
+    const b = el('<div class="stack"><div class="card pad"><div class="spread"><div><b>' + esc(user.name) + '</b><div class="note">' + esc(user.phone) + ' · ' + esc(roleLabel(user)) + '</div></div><span class="avatar">' + esc(U.initials(user.name)) + '</span></div></div><div class="card"><div class="list"></div></div><div class="two"><button class="btn ghost wide" data-blank>Start from zero</button><button class="btn ghost wide" data-reset>Load sample data</button></div></div>');
     const l = b.querySelector('.list');
-    M.db.users.filter((u) => u.phone && u.active !== false).forEach((u) => l.appendChild(U.row({ lead: esc(U.initials(u.name)), title: esc(u.name), sub: esc(roleLabel(u)) + ' · ' + esc(u.phone), end: u.phone === user.phone ? U.pill('paid', 'You') : icon('chev'), onClick: () => { setUser(u); s.close(true); location.hash = '#/home'; boot(); U.toast('Switched to ' + u.name); } })));
-    b.querySelector('[data-reset]').onclick = async () => { if (await U.confirm({ title: 'Reset demo data?', text: 'All changes made in this preview are discarded and the sample data is regenerated for today.', ok: 'Reset', danger: true })) { M.reset(); location.reload(); } };
-    const s = U.sheet({ title: 'Signed in', sub: 'Switch role to preview what each person sees', body: b, foot: '<button class="btn ghost wide" data-o>Sign out</button>' });
+    M.db.users.filter((u) => u.phone && u.active !== false).forEach((u) => l.appendChild(U.row({ lead: esc(U.initials(u.name)), title: esc(u.name), sub: esc(roleLabel(u)) + ' · ' + esc(u.phone), end: u.phone === user.phone ? U.pill('paid', 'You') : icon('chev'), onClick: () => { try { const cur = JSON.parse(localStorage.getItem('incenso-account')) || {}; localStorage.setItem('incenso-account', JSON.stringify(Object.assign(cur, { name: u.name, phone: u.phone }))); localStorage.setItem('incenso-signedin', '1'); localStorage.setItem('incenso-demo-account', '1'); } catch (e) {} s.close(true); location.hash = '#/home'; location.reload(); } })));
+    b.querySelector('[data-reset]').onclick = async () => { if (await U.confirm({ title: 'Load sample data?', text: 'Everything entered so far is discarded and sample bookings, clients and orders are generated for today.', ok: 'Load samples', danger: true })) { M.reset(); location.reload(); } };
+    b.querySelector('[data-blank]').onclick = async () => { if (await U.confirm({ title: 'Start from zero?', text: 'Removes every booking, client, order, gift card, expense and message. Staff, services, products and settings stay.', ok: 'Clear everything', danger: true })) { M.reset('blank'); location.reload(); } };
+    const s = U.sheet({ title: 'Signed in', sub: 'Switch role to preview what each person sees', body: b, foot: '<div style="display:grid;gap:8px;width:100%"><a class="btn soft wide" href="account.html">' + icon('globe') + 'Website</a><button class="btn ghost wide" data-o>Sign out</button></div>' });
     s.el.querySelector('[data-o]').onclick = signOut;
   };
   const globalSearch = () => {
@@ -94,7 +90,7 @@
   const badges = () => {
     if (!document.querySelector('.tabs') && !document.querySelector('.rail')) return;
     const held = M.db.bookings.filter((b) => b.payStatus === 'pending' && b.status === 'held' && new Date(b.start) >= new Date(M.T0)).length + M.db.bookings.filter((b) => (b.extra || []).some((x) => x.status === 'pending' && x.pay !== 'cash')).length;
-    const ord = M.db.orders.filter((o) => o.status === 'placed' || o.status === 'preparing').length;
+    const ord = M.db.orders.filter((o) => ['placed', 'preparing', 'ready', 'with-courier'].includes(o.status)).length;
     const gifts = M.db.gifts.filter((g) => g.status === 'Reserved').length;
     const pend = M.db.orders.filter((o) => o.payStatus === 'pending').length + gifts + held;
     const set = (k, n) => { document.querySelectorAll('[data-badge="' + k + '"]').forEach((b) => { b.textContent = n; b.classList.toggle('hide', !n); }); };
@@ -103,7 +99,9 @@
 
   // ---- router ----
   const parse = () => { const h = location.hash.replace(/^#\/?/, ''); const [name, ...rest] = h.split('/'); return { name: name || 'home', param: rest.join('/') || '' }; };
+  document.addEventListener('account:updated', () => { if (!user) { syncSession(); if (user) { setUser(user); boot(); } } });
   const render = () => {
+    syncSession();
     if (!user) return gate();
     const { name, param } = parse();
     const v = M.views[name];
@@ -111,11 +109,12 @@
     if (!v || !allowed(user, parent)) { const first = NAV.find((n) => n.id && allowed(user, n.id)); if (first && first.id !== name) location.hash = '#/' + first.id; return; }
     current = { name, param };
     document.querySelectorAll('[data-nav]').forEach((a) => { const on = a.dataset.nav === parent || (a.dataset.nav === 'more' && !tabsFor(user).includes(parent) && !a.closest('.rail')); if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
-    root.innerHTML = '';
-    const ctx = { root, param, user, title: (t, s) => { titleEl.innerHTML = esc(t) + (s ? '<small>' + esc(s) + '</small>' : ''); document.title = t + ' — Incenso Studio management'; }, back: DETAIL_PARENT[name] ? '#/' + DETAIL_PARENT[name] : null };
+    root.innerHTML = ''; root.className = 'content'; document.querySelectorAll('.top [data-quick]').forEach((x) => x.remove());
+    const ctx = { root, param, user, back: DETAIL_PARENT[name] ? '#/' + DETAIL_PARENT[name] : null, title: (t, s) => { document.title = t + ' — Incenso Studio management'; titleEl.innerHTML = esc(t) + (s ? '<small>' + esc(s) + '</small>' : ''); } };
     ctx.title(v.title || name);
     if (ctx.back) { const wm = document.querySelector('[data-home]'); wm.innerHTML = icon('back'); wm.onclick = () => { location.hash = ctx.back; }; } else { const wm = document.querySelector('[data-home]'); wm.innerHTML = window.INCENSO_WORDMARK.replace('viewBox="8 76 1282 226"', 'viewBox="972 69 324 240"'); wm.onclick = () => { location.hash = '#/home'; }; }
     v.render(ctx);
+    if (ctx.back && !root.querySelector('.ed-back') && !root.querySelector('.pg-back')) { const lbl = M.NAV_LABEL[DETAIL_PARENT[name]] || 'Back'; root.insertAdjacentHTML('afterbegin', '<a class="pg-back" href="' + ctx.back + '">' + icon('left') + esc(lbl) + '</a>'); }
     window.scrollTo(0, 0);
     badges();
   };
@@ -134,5 +133,5 @@
   } };
   const MORE_SUB = { home: 'Today at a glance', supply: 'Purchase orders & stock-in', reports: 'Top services, occupancy, retention', today: 'Day & week by chair', bookings: 'All appointments', clients: 'Members & history', orders: 'Shop orders & courier', gifts: 'Activate, cancel, resend', products: 'Stock & restock alerts', money: 'Takings, payouts, P&L', staff: 'Schedules & days off', services: 'Menus & pricing', messages: 'WhatsApp log', settings: 'Hours, ticker, tiers' };
 
-  document.addEventListener('DOMContentLoaded', () => { if (user) boot(); else gate(); });
+  document.addEventListener('DOMContentLoaded', () => { syncSession(); if (user) { setUser(user); boot(); } else gate(); });
 })();

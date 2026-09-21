@@ -1,71 +1,60 @@
-# Management app — backend wiring plan & status
+# Management app — wiring plan & status (v3.7)
 
-_Last updated by Claude Code, 2026-09-20 (overnight)._ 
+Branch `claude/salon-management-pwa-h1deje`. **Not live** — GitHub Pages deploys from `main`
+only, so nothing here reaches `manage.incensostudio.com` until merged.
 
-This tracks turning the new static management app (shipped from the design handoff) into a live,
-Supabase-backed back-office. Work is on branch `claude/salon-management-pwa-h1deje`. **The live URL
-(management.incensostudio.com) is untouched** — the deploy workflow now publishes only from `main`,
-so nothing here goes live until you merge.
+## Ground rules (from the studio owner)
+1. **The customer website is the source of truth. Nothing on the site changes.** The
+   management app manages what the site already has.
+2. Where the design disagrees with the site, **the site wins** and the app is adapted
+   (e.g. member levels are the site's Member / Insider / Loyal).
+3. Domain: **manage.incensostudio.com**; the old **management.incensostudio.com** is deleted.
+4. **Not a PWA** — a plain web app.
 
-## ✅ Done (safe, reversible)
+## Phase A — app shipped (done)
+- Replaced the previous management files with the design's **v3.7** app (`management.html`
+  + `assets/mgmt/*`, incl. new `v-newbooking.js`). `index.html` = the app shell so the
+  domain root serves the app.
+- Shared modules (`auth.js`, `catalog.js`, `supabase.js`, `phone.js`, `gift.js`) copied
+  from the **live** customer site so the app speaks the live backend contract.
+- Staff placeholder photos (`assets/staff/*`) and gallery images added for the prototype seed.
+- PWA meta removed (plain web app). `CNAME` → `manage.incensostudio.com`.
+- Spec docs vendored: `HANDOFF-CONTRACT.md`, `CHANGELOG-mgmt.md`, `MESSAGES.md`.
 
-- **Phase 1 — app shipped.** Replaced the old React/Vite PWA with the new no-build static app
-  (`management.html` + `index.html` + `assets/mgmt/*`), brought in the shared modules it needs
-  (`catalog.js`, `auth.js`, `supabase.js`, `phone.js`), favicons, sample images, and the `CNAME`.
-  Deploy workflow switched to a static Pages publish, **main-only**.
-- **Phase 2 — additive schema** (migration `mgmt_app_additive_schema`, nothing existing touched):
-  - New tables (RLS enabled, **no policies yet = locked**): `suppliers`, `purchase_orders`,
-    `shifts`, `blocks`, `expenses`, `payouts`, `closes`, `audit`, `web_gallery`, `web_space`,
-    `web_pages`.
-  - New columns: `web_products` (`cost, sku, low, image_url, category, descr`), `web_staff`
-    (`phone, days, start_hour, end_hour, commission, time_off, services`).
-  - `ref_counters` gained a `PO` row for `next_ref('PO')`.
-  - Storage bucket **`studio`** (public) created for product/staff/gallery/QR images.
+The app runs on its localStorage prototype store (`assets/mgmt/data.js`) — clickable for
+review. Swapping that seam for Supabase is Phase B.
 
-The app still runs on its localStorage prototype store (`assets/mgmt/data.js`) — fully clickable on
-the branch for review. Swapping that store for Supabase is Phase 3.
+### DNS / Pages (owner action)
+- Point `manage.incensostudio.com` (CNAME) at GitHub Pages for this repo.
+- Remove the `management.incensostudio.com` DNS record so the old subdomain stops resolving.
 
-## ⛔ Decisions needed before Phase 3 (they touch real client data — not doing these unattended)
+## Phase B — Supabase wiring (next)
+The one seam is `assets/mgmt/data.js` (`IncensoMgmt.db` + `save()` + helpers). Replace its
+localStorage store with Supabase reads/writes, keeping the public surface. Key adaptations
+so the app fits the live site without changing it:
 
-The prototype's data shapes don't match the live DB, and there are **two of some things**:
+- **Sign-in on a separate subdomain.** The design piggybacks on the site session + a
+  Dashboard link on `account.html`. Across `manage.` the browser session isn't shared and
+  `account.html` isn't touched, so the app gets its **own WhatsApp-OTP sign-in** (same
+  `IncensoAuth`, same `desk_users` allow-list, matched by phone). `is_desk()` keys off the
+  OTP user's phone.
+- **Clients = profiles ∪ clients.** `profiles.id` is FK to `auth.users`, so walk-ins can't
+  be profiles. The clients list merges `profiles` (site accounts) and the `clients` table
+  (desk/walk-in) deduped by phone; desk-added guests are written to `clients`. No site change.
+- **Shared live tables** (`bookings`, `orders`, `gift_cards`): the customer pages read them
+  with their own derived vocabulary (`Awaiting payment` / `Upcoming` / `Cancelled`, pay
+  **labels**, `staff` as a string, settled via `final`). The desk stores its richer state in
+  **additive columns** (`desk_status`, `staff_name`, `visit`, `products`, settle fields, …)
+  and writes the shared columns in the site's vocabulary, so the site keeps rendering as-is.
+- **New desk data** (additive schema): `desk_users(phone,…)`, `blocks`, `expenses`,
+  `income`, `payouts`, `shifts`, `suppliers`, `purchase_orders`, `supplies` (backbar),
+  `audit`, `web_gallery`, `web_space`, `web_pages`, plus columns on `web_products`,
+  `web_staff`, `web_config`. Finances = month ledger (`settings.openingBalance` +
+  income − expenses/payouts; `fixedCosts` generate bills).
+- **RLS** keyed to `is_desk()`; Storage write policy on the `studio` bucket for uploads.
+- **WhatsApp** actions reuse the site's `send_wa` + approved `incenso_*` templates
+  (numbers/templates per `MESSAGES.md`), from the studio number `+15554261908`.
+- **Availability**: `/book` day search should read `shiftFor` (rota) — site-side follow-up.
 
-1. **Clients vs profiles.** The DB has `clients` (old management table, ~35 real clients:
-   `name, phone, instagram, tiktok, note, visits, spend, last_visit`) **and** `profiles` (website
-   accounts from phone sign-in: `name, phone, email, tier, spend_12mo, birthday`). The new app has
-   one "clients" list with `tags, newsletter, blocked, photo, no_shows, birthday, email, tier`.
-   **Decide:** make `profiles` the single client record (migrate the 35 `clients` into it, add the
-   missing columns) — recommended — or keep `clients` as walk-ins/no-account and read both.
-2. **Bookings vs appointments.** The DB has `bookings` (website: `user_id, services jsonb, date,
-   time, start_min, mins, pay/paid/due/gift, extra[] top-ups, status, final…`) **and**
-   `appointments` (old management model: `client_id, service_name, staff_id, date, time, stage…`).
-   The new app models bookings exactly like the website's `bookings` (top-ups array, settle→final).
-   **Decide:** run the app on `bookings` (unify with the site) — recommended — and migrate/retire
-   `appointments`.
-3. **Desk sign-in.** `desk_users` is currently the OLD passcode shape (`auth_user_id, passcode_hash,
-   auth_secret…`). The new app signs in with the site's WhatsApp OTP (`IncensoAuth`) then looks the
-   number up in `desk_users` for `modules[]` + `flags`. **Provide:** the real sign-in **phone
-   numbers** for the owner + each desk/chair user, and confirm we replace passcode auth with
-   OTP + `desk_users(phone, name, role, staff, modules[], flags jsonb, active)`.
-
-## Phase 3 sequence (once the 3 decisions are in)
-
-1. Reshape `desk_users` to the new model; seed the owner (and staff) rows from the phones you give;
-   wire `app.js` sign-in gate: after `IncensoAuth` OTP, load the `desk_users` row → modules + flags;
-   refuse numbers not present/inactive; remove the prototype's fake code + avatar switcher.
-2. Rewrite `assets/mgmt/data.js` as a **Supabase-backed cache**, keeping the exact public surface
-   (`IncensoMgmt.db.<table>`, `save()`, `log()`, `nextRef()`, `shiftFor()`, `setShift()`, `on/off`,
-   helpers). Hydrate all collections on load; `save()` upserts the changed rows with field mapping
-   (app camelCase ↔ DB snake_case; booking `start` timestamp ↔ `date`+`start_min`; staff name ↔
-   `web_staff`; client id ↔ profile id). `log()` → `audit`.
-3. RLS policies on the new + shared tables keyed to desk identity (via `is_desk()` on the OTP user);
-   Storage write policy for desk users on the `studio` bucket.
-4. Wire mutating actions module by module (Today/booking → Bookings → Clients → Orders/POS → Gifts →
-   Products → Supply → Staff/Services → Money → Reports → Messages → Settings), reusing the
-   customer-site `send_wa` + approved `incenso_*` templates for the WhatsApp messages (numbers per
-   MESSAGES.md).
-5. Point `/book` availability at `shiftFor` (rota) on the customer site.
-6. Reconcile the HANDOFF-CONTRACT (customer repo) with anything that changed.
-
-## Notes
-- Old `supabase/functions/desk-auth` (passcode) stays until sign-in is switched to OTP, then retire.
-- `web_config` is key/value — settings map to keys, not columns.
+Nothing in Phase B is destructive to the ~existing customer data; desk changes are additive
+columns + upserts of rows the desk actually touches.
