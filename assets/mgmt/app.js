@@ -25,6 +25,9 @@
   M.can = (id) => user && allowed(user, id);
   M.may = (flag) => { const u = M.user(); return !!(u && u.flags && u.flags[flag]); };
   M.myStaff = () => { const u = M.user(); return u && u.flags && u.flags.ownOnly ? u.staff : null; };
+  // Client phone privacy: hidden only when a person's `contacts` flag is explicitly false (stylists).
+  M.seePhones = () => { const u = M.user(); return !(u && u.flags && u.flags.contacts === false); };
+  M.maskPhone = (p) => (M.seePhones() ? (p || '') : (p ? '•••• ••••' : ''));
 
   // ---- gate ----
   // Same account as the website (IncensoAuth). Access is granted only if the signed-in number is whitelisted in desk_users (M.db.users) and active.
@@ -101,7 +104,7 @@
     const s = U.sheet({ title: 'Search', sub: 'Across clients, bookings, orders, gift cards and products', body });
     setTimeout(() => inp.querySelector('input').focus(), 250);
     const draw = (q) => { host.innerHTML = ''; if (q.length < 2) return; const has = (t) => String(t).toLowerCase().includes(q); const rows = [];
-      M.db.clients.filter((c) => has(c.name + ' ' + c.phone)).slice(0, 5).forEach((c) => rows.push(U.row({ href: '#/client/' + c.id, lead: esc(U.initials(c.name)), title: esc(c.name), sub: esc(c.phone), end: '<span class="ref">client</span>' })));
+      M.db.clients.filter((c) => has(c.name + ' ' + c.phone)).slice(0, 5).forEach((c) => rows.push(U.row({ href: '#/client/' + c.id, lead: esc(U.initials(c.name)), title: esc(c.name), sub: esc(M.maskPhone(c.phone)), end: '<span class="ref">client</span>' })));
       M.db.bookings.filter((b) => has(b.ref + ' ' + M.client(b.clientId).name)).slice(0, 5).forEach((b) => rows.push(U.row({ lead: '<span style="font-size:10px">BK</span>', title: esc(M.client(b.clientId).name) + ' <span class="ref">' + esc(b.ref) + '</span>', sub: M.fmtDT(b.start) + ' · ' + esc(b.staff), end: U.pill(b.status), onClick: () => { s.close(true); M.openBooking(b.ref); } })));
       if (M.can('orders')) M.db.orders.filter((o) => has(o.ref + ' ' + M.client(o.clientId).name + ' ' + o.items.map((i) => i.name).join(' '))).slice(0, 5).forEach((o) => rows.push(U.row({ href: '#/order/' + o.ref, lead: '<span style="font-size:10px">OR</span>', title: esc(M.client(o.clientId).name) + ' <span class="ref">' + esc(o.ref) + '</span>', sub: esc(o.items.map((i) => i.name).join(', ')), end: U.pill(o.status) })));
       if (M.can('gifts')) M.db.gifts.filter((g) => has(g.code + ' ' + g.to + ' ' + g.from + ' ' + g.toPhone)).slice(0, 5).forEach((g) => rows.push(U.row({ href: '#/gift/' + g.code, lead: '<span style="font-size:10px">GF</span>', title: esc(g.to) + ' <span class="ref">' + esc(g.code) + '</span>', sub: M.money(g.balance) + ' left', end: U.pill(g.status) })));
