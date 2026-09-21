@@ -303,6 +303,16 @@
   const toBlock = (b) => ({ id: b.id, staff: b.staff || null, start: b.start || null, mins: b.mins || 0, label: b.label || null });
   const fromUser = (r) => ({ phone: r.phone, name: r.name, role: r.role, staff: r.staff, modules: r.modules || [], flags: r.flags || {}, active: r.active !== false, added: r.added, _id: r.id });
 
+  // services ↔ web_services (id is bigint identity → new rows insert without id)
+  const fromSvc = (r) => ({ id: String(r.id), cat: r.cat, group: r.grp, name: r.name, mins: r.mins, price: r.price, from: !!r.is_from, unit: r.unit || '', desc: r.descr || '', brands: r.brands || '', active: r.active !== false, sort: r.sort, _id: r.id });
+  const toSvcRow = (s, i) => { const row = { cat: s.cat || null, grp: s.group || null, name: s.name || null, mins: s.mins || 0, price: (s.price == null ? null : s.price), is_from: !!s.from, unit: s.unit || null, descr: s.desc || null, brands: s.brands || null, sort: (s.sort != null ? s.sort : i), active: s.active !== false }; if (s._id != null) row.id = s._id; return row; };
+  const svcKey = (s) => JSON.stringify([s._id, s.cat, s.group, s.name, s.mins, s.price, s.from, s.unit, s.desc, s.brands, s.active]);
+  // finances/settings web_config keys the desk owns (studio + hours reach the live site via catalog.js)
+  const CFG_KEYS = ['hours', 'closedDates', 'ticker', 'tickerOn', 'reviewsOn', 'tiers', 'holdDays', 'transferHours', 'payments', 'qr', 'shop', 'home', 'announcement', 'fixedCosts', 'openingBalance', 'payTo', 'transferHoursBy', 'music', 'musicOn'];
+  let rawStudio = {};
+  const settingsKeys = () => { const o = {}; CFG_KEYS.forEach((k) => { if (db.settings[k] !== undefined) o[k] = db.settings[k]; }); o.studio = { address: db.settings.address, city: db.settings.city, maps: db.settings.maps, wa: db.settings.wa, email: db.settings.email, instagram: db.settings.instagram, tiktok: db.settings.tiktok }; return o; };
+  let svcSnap = '', catSnap = '', setSnap = '', galSnap = '', spcSnap = '', pgSnap = '';
+
   const err = (label, e) => { if (e) console.warn('[mgmt] ' + label, e.message || e); };
   const sel = async (t, cols) => { try { const { data, error } = await SB.from(t).select(cols || '*'); if (error) { err(t, error); return []; } return data || []; } catch (e) { err(t, e); return []; } };
 
@@ -320,7 +330,9 @@
       sel('wa_log'), sel('newsletter'), sel('audit'), sel('web_config'), sel('web_gallery'),
       sel('web_space'), sel('web_pages'), sel('ref_counters'),
     ]);
-    const shf = await sel('shifts');
+    const [shf, wsv, wcat] = await Promise.all([sel('shifts'), sel('web_services'), sel('web_categories')]);
+    if (wsv.length) db.services = wsv.map(fromSvc);
+    if (wcat.length) { db.catMeta = {}; wcat.forEach((c) => { db.catMeta[c.name] = { h1: c.h1, intro: c.intro, chairs: c.chairs, hero: c.hero_url || null }; }); }
     // clients = profiles ∪ clients, deduped by phone (profile identity wins)
     profileIds = new Set(prof.map((p) => p.id)); clientIds = new Set(cli.map((c) => c.id));
     const byPhone = {}; const clients = [];
@@ -347,13 +359,18 @@
     const S = {}; shf.forEach((r) => { S[r.staff] = S[r.staff] || {}; S[r.staff][r.date] = r.off ? { off: true, label: r.label || 'Off' } : { off: false, start: r.start_hour != null ? Number(r.start_hour) : undefined, end: r.end_hour != null ? Number(r.end_hour) : undefined, label: r.label || 'Shift' }; }); db.shifts = S;
     // settings: merge known web_config keys over the seed defaults (read-only for now)
     const cmap = {}; cfg.forEach((r) => { cmap[r.key] = r.value; });
-    ['hours', 'closedDates', 'ticker', 'tickerOn', 'reviewsOn', 'tiers', 'holdDays', 'transferHours', 'payments', 'qr', 'shop', 'home', 'announcement', 'fixedCosts', 'openingBalance', 'studio', 'payTo', 'transferHoursBy', 'music', 'musicOn', 'address', 'city', 'maps', 'email', 'instagram', 'tiktok', 'wa'].forEach((k) => { if (cmap[k] !== undefined) db.settings[k] = cmap[k]; });
+    rawStudio = cmap.studio || {};
+    ['hours', 'closedDates', 'ticker', 'tickerOn', 'reviewsOn', 'tiers', 'holdDays', 'transferHours', 'payments', 'qr', 'shop', 'home', 'announcement', 'fixedCosts', 'openingBalance', 'payTo', 'transferHoursBy', 'music', 'musicOn'].forEach((k) => { if (cmap[k] !== undefined) db.settings[k] = cmap[k]; });
+    if (cmap.studio) { const st = cmap.studio; ['address', 'city', 'maps', 'wa', 'email', 'instagram', 'tiktok'].forEach((k) => { if (st[k] !== undefined) db.settings[k] = st[k]; }); }
     if (gal.length) db.settings.gallery = gal.map((g) => ({ id: g.id, image: g.image_url, caption: g.caption, cat: g.category }));
     if (spc.length) db.settings.space = spc.map((s) => ({ id: s.id, image: s.image_url, caption: s.caption }));
     if (pg.length) { db.settings.legal = db.settings.legal || {}; pg.forEach((p) => { db.settings.legal[p.key] = p.body; }); }
     // counters from ref_counters (so desk refs continue the site series)
     const cc = {}; rc.forEach((r) => { cc[r.prefix] = Number(r.n) || 0; }); db.counters = Object.assign({ BK: 0, OR: 0, GF: 0, PO: 0 }, cc);
     db.blank = false; db.online = true;
+    svcSnap = JSON.stringify((db.services || []).map(svcKey)); catSnap = JSON.stringify(db.catMeta || {}); setSnap = JSON.stringify(settingsKeys());
+    svcIds = new Set((db.services || []).map((s) => s._id).filter((x) => x != null));
+    galSnap = JSON.stringify(db.settings.gallery || []); spcSnap = JSON.stringify(db.settings.space || []); pgSnap = JSON.stringify(db.settings.legal || {});
     snapshot(); cache(); notify('hydrate');
   };
 
@@ -387,8 +404,10 @@
         if (ups.length) { const { error } = await SB.from(cfgv.table).upsert(ups, { onConflict: cfgv.keyCol }); err('upsert ' + cfgv.table, error); }
         if (dels.length) { const { error } = await SB.from(cfgv.table).delete().in(cfgv.keyCol, dels); err('delete ' + cfgv.table, error); }
       }
-      // clients (routed by source), shifts, desk_users, audit — handled explicitly
+      // clients (routed by source), shifts, desk_users, audit, services, categories,
+      // settings and site content — handled explicitly
       await syncClients(); await syncShifts(); await syncUsers(); await syncAudit();
+      await syncServices(); await syncCategories(); await syncSettings(); await syncContent();
       snapshot();
       // keep the site ref series ahead of the desk counters (best-effort)
       for (const p of ['BK', 'OR', 'GF', 'PO']) { const n = db.counters[p]; if (n) { try { await SB.rpc('bump_ref', { p_prefix: p, p_to: n }); } catch (e) {} } }
@@ -430,6 +449,43 @@
     const rows = neu.map((a) => ({ at: a.at, action: a.action, ref: a.ref || null, by: a.by || null }));
     const { error } = await SB.from('audit').insert(rows); err('audit', error);
     if (!error) neu.forEach((a) => { delete a._new; });
+  };
+  // services → web_services (bigint identity: existing rows upsert by id, new rows insert then adopt the id)
+  let svcIds = new Set();
+  const syncServices = async () => {
+    const now = JSON.stringify((db.services || []).map(svcKey)); if (now === svcSnap) return;
+    const withId = [], neu = [], ids = new Set();
+    (db.services || []).forEach((s, i) => { if (s._id != null) { ids.add(s._id); withId.push(toSvcRow(s, i)); } else neu.push(s); });
+    if (withId.length) { const { error } = await SB.from('web_services').upsert(withId, { onConflict: 'id' }); err('web_services', error); }
+    for (const s of neu) { const { data, error } = await SB.from('web_services').insert(toSvcRow(s, 999)).select('id').maybeSingle(); err('web_services ins', error); if (data && data.id != null) { s._id = data.id; s.id = String(data.id); ids.add(data.id); } }
+    const dels = [...svcIds].filter((id) => !ids.has(id)); if (dels.length) { const { error } = await SB.from('web_services').delete().in('id', dels); err('web_services del', error); }
+    svcIds = ids; svcSnap = JSON.stringify((db.services || []).map(svcKey));
+  };
+  const slugify = (s) => '/' + String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const syncCategories = async () => {
+    const now = JSON.stringify(db.catMeta || {}); if (now === catSnap) return;
+    for (const name of Object.keys(db.catMeta || {})) { const m = db.catMeta[name];
+      const patch = { h1: m.h1 || null, intro: m.intro || null, chairs: m.chairs || null, hero_url: m.hero || null };
+      const { data, error } = await SB.from('web_categories').update(patch).eq('name', name).select('name'); err('web_categories upd', error);
+      if (!error && (!data || !data.length)) { const { error: e2 } = await SB.from('web_categories').insert(Object.assign({ name, file: slugify(name), ar: '', sort: 99, active: true }, patch)); err('web_categories ins', e2); }
+    }
+    catSnap = now;
+  };
+  const syncSettings = async () => {
+    const now = JSON.stringify(settingsKeys()); if (now === setSnap) return;
+    const rows = []; CFG_KEYS.forEach((k) => { if (db.settings[k] !== undefined) rows.push({ key: k, value: db.settings[k] }); });
+    // studio: merge over whatever the site already stores (e.g. reviews_uri) so nothing is lost
+    const studio = Object.assign({}, rawStudio); ['address', 'city', 'maps', 'wa', 'email', 'instagram', 'tiktok'].forEach((k) => { if (db.settings[k] !== undefined) studio[k] = db.settings[k]; });
+    rows.push({ key: 'studio', value: studio }); rawStudio = studio;
+    const { error } = await SB.from('web_config').upsert(rows, { onConflict: 'key' }); err('web_config', error);
+    if (!error) setSnap = now;
+  };
+  // Our Work / The Space / legal pages — persisted as records (the live site renders these
+  // statically today, so this is the studio's own copy, not a site change).
+  const syncContent = async () => {
+    const g = JSON.stringify(db.settings.gallery || []); if (g !== galSnap) { const rows = (db.settings.gallery || []).map((x, i) => ({ id: x.id || uuid(), image_url: x.image || null, caption: x.caption || null, category: x.cat || null, sort: i, active: true })); if (rows.length) { const { error } = await SB.from('web_gallery').upsert(rows, { onConflict: 'id' }); err('web_gallery', error); if (!error) galSnap = g; } else galSnap = g; }
+    const s = JSON.stringify(db.settings.space || []); if (s !== spcSnap) { const rows = (db.settings.space || []).map((x, i) => ({ id: x.id || uuid(), image_url: x.image || null, caption: x.caption || null, sort: i })); if (rows.length) { const { error } = await SB.from('web_space').upsert(rows, { onConflict: 'id' }); err('web_space', error); if (!error) spcSnap = s; } else spcSnap = s; }
+    const p = JSON.stringify(db.settings.legal || {}); if (p !== pgSnap) { const L = db.settings.legal || {}; const rows = Object.keys(L).map((k) => ({ key: k, title: k, body: typeof L[k] === 'string' ? L[k] : JSON.stringify(L[k]), updated_at: new Date().toISOString() })); if (rows.length) { const { error } = await SB.from('web_pages').upsert(rows, { onConflict: 'key' }); err('web_pages', error); if (!error) pgSnap = p; } else pgSnap = p; }
   };
 
   let saveT = null;
