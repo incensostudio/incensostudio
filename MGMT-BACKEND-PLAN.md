@@ -74,14 +74,28 @@ columns + upserts of rows the desk actually touches.
 - `app.js`: own WhatsApp-OTP sign-in gate for the manage subdomain (IncensoAuth + desk_users
   allow-list), hydrate-before-boot, real sign-out, prototype demo tools hidden when online.
 
-**Still to wire (next pass):**
-- Settings **writes** (web_config: hours/tiers/payments/QR/shop/home; gallery/space/legal) —
-  currently hydrated read-only.
-- Services & prices editing (site uses `catalog.js`; needs a services source to persist to).
-- WhatsApp sends on desk actions (confirm transfer, settle receipt, reminders) via `send_wa`
-  + `incenso_*` templates.
-- Image uploads to the `studio` Storage bucket (picker still returns data URLs).
-- Stripe card links for desk-created orders/bookings.
-- `/book` availability reading `shiftFor` (site-side follow-up).
+**Follow-up items — all done:**
+1. **Settings writes** — hours + studio reach the live site via `catalog.js` (studio merged so
+   `reviews_uri` is preserved); other config keys persist to `web_config`; gallery/space/legal
+   persist to `web_gallery`/`web_space`/`web_pages` as the studio's record (those site pages are
+   static today).
+2. **Services & prices / categories** — the live site already reads `web_services`/`web_categories`,
+   so desk edits persist there and show on `/book` and the service pages (bigint identity handled;
+   `web_categories.hero_url` added for the page image).
+3. **WhatsApp sends** — delivered by the existing table triggers: the desk writes bookings/orders/
+   gift_cards in the site's vocabulary, so confirmations, transfer-confirmed, settle, no-show,
+   cancel, order status and gift sends message automatically. Triggers skip (never error) when a
+   walk-in has no account phone. Manual "message client" uses `wa.me`.
+4. **Image uploads** — `MgmtUI.imagePicker` uploads to the public `studio` bucket and stores the
+   public URL (data-URL fallback offline).
+5. **Card payments** — desk in-person card is marked paid; an account customer's card booking/order
+   is payable via the existing site "Pay by card" button (`create-checkout` → `stripe-webhook`).
+6. **/book availability** — `day_busy` now reads desk bookings (robust to string/object staff via
+   `staff_name`) and desk `blocks`. (Full off-day/shift gating in `/book` is a further site step.)
+7. **OTP** — `send-sms-otp` now sends the studio's `incenso_otp` from **+15554261908** (body code +
+   copy-code button), with `bird_otp` (shared number) as an automatic fallback. Verified delivered
+   end-to-end (Supabase Auth → hook → Bird).
+8. **`incenso_booking_confirmed`** — `notify_booking_whatsapp` pay-at-studio branch now uses the
+   approved studio template (vars: ref, services, staff, date, pay). Verified delivered.
 
-Not live until merged to `main` + `manage.` DNS is pointed.
+Live once merged to `main`; `manage.` DNS still to be pointed by the studio.
