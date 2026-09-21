@@ -194,11 +194,25 @@
 
   // ---- image picker (prototype: downscaled data URL in the store; real: Supabase Storage upload → photo_url) ----
   const downscale = (file, max) => new Promise((res, rej) => { const img = new Image(); const url = URL.createObjectURL(file); img.onload = () => { const r = Math.min(1, (max || 640) / Math.max(img.width, img.height)); const c = document.createElement('canvas'); c.width = Math.round(img.width * r); c.height = Math.round(img.height * r); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url); res(c.toDataURL('image/jpeg', 0.82)); }; img.onerror = rej; img.src = url; });
+  // Real uploads: push the downscaled image to the public 'studio' Storage bucket and
+  // keep the public URL (so rows store a small URL, not a fat data URL). Offline/failure
+  // falls back to the data URL so the picker still works.
+  const uploadStudio = async (dataUrl) => {
+    const SB = window.SB; if (!SB || !SB.storage || !(window.IncensoMgmt && window.IncensoMgmt.online)) return dataUrl;
+    try {
+      const blob = await (await fetch(dataUrl)).blob();
+      const path = 'uploads/' + Date.now() + '-' + Math.random().toString(16).slice(2) + '.jpg';
+      const up = await SB.storage.from('studio').upload(path, blob, { contentType: 'image/jpeg', upsert: true });
+      if (up.error) { console.warn('[mgmt] upload', up.error.message); return dataUrl; }
+      const { data } = SB.storage.from('studio').getPublicUrl(path);
+      return (data && data.publicUrl) || dataUrl;
+    } catch (e) { console.warn('[mgmt] upload', e); return dataUrl; }
+  };
   const imagePicker = ({ value, label, shape, onChange, hint }) => {
     const w = el('<div class="field"><label>' + esc(label || 'Photo') + '</label><div class="imgpick ' + (shape || '') + '"><div class="imgpick-preview">' + (value ? '<img src="' + esc(value) + '" alt="">' : '<span>' + icon('image') + (hint || 'Tap to upload') + '</span>') + '</div><div class="imgpick-actions"><label class="btn sm soft">' + icon('upload') + (value ? 'Replace' : 'Upload') + '<input type="file" accept="image/*" hidden></label>' + (value ? '<button type="button" class="btn sm ghost" data-rm>Remove</button>' : '') + '</div></div></div>');
     let cur = value || null; w.value = () => cur;
     const set = (v) => { cur = v; const p = w.querySelector('.imgpick-preview'); p.innerHTML = v ? '<img src="' + v + '" alt="">' : '<span>' + icon('image') + (hint || 'Tap to upload') + '</span>'; let rm = w.querySelector('[data-rm]'); if (v && !rm) { rm = el('<button type="button" class="btn sm ghost" data-rm>Remove</button>'); w.querySelector('.imgpick-actions').appendChild(rm); rm.onclick = () => set(null); } if (!v && rm) rm.remove(); w.querySelector('.imgpick-actions .btn.soft').lastChild.previousSibling.textContent = v ? 'Replace' : 'Upload'; if (onChange) onChange(v); };
-    w.querySelector('input[type=file]').onchange = async (e) => { const f = e.target.files[0]; if (!f) return; try { set(await downscale(f, 720)); toast('Photo added'); } catch (err) { toast('Could not read that image'); } };
+    w.querySelector('input[type=file]').onchange = async (e) => { const f = e.target.files[0]; if (!f) return; try { const d = await downscale(f, 720); set(d); const url = await uploadStudio(d); if (url && url !== d) { set(url); toast('Photo uploaded'); } else toast('Photo added'); } catch (err) { toast('Could not read that image'); } };
     w.querySelector('.imgpick-preview').onclick = () => w.querySelector('input[type=file]').click();
     const rm = w.querySelector('[data-rm]'); if (rm) rm.onclick = () => set(null);
     return w;
