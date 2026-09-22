@@ -3,6 +3,8 @@
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html{background:var(--bg);touch-action:manipulation}
 body{margin:0;font-family:var(--font-sans);color:var(--fg);background:var(--bg);-webkit-font-smoothing:antialiased;min-height:100vh;overscroll-behavior-y:none;font-size:14px;line-height:1.4}
+/* iOS zooms the page in whenever a focused field is smaller than 16px — keep touch inputs at 16px so it never does */
+@media (pointer:coarse){input,select,textarea{font-size:16px!important}}
 a{color:var(--fg)}a:hover{color:#000}
 button{font-family:inherit;color:var(--fg);cursor:pointer}
 input,select,textarea{font-family:inherit;color:var(--fg)}
