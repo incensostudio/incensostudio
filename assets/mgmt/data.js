@@ -316,7 +316,8 @@
   const settingsKeys = () => { const o = {}; CFG_KEYS.forEach((k) => { if (db.settings[k] !== undefined) o[k] = db.settings[k]; }); o.studio = { address: db.settings.address, city: db.settings.city, maps: db.settings.maps, wa: db.settings.wa, email: db.settings.email, instagram: db.settings.instagram, tiktok: db.settings.tiktok }; return o; };
   let svcSnap = '', catSnap = '', setSnap = '', galSnap = '', spcSnap = '', pgSnap = '';
 
-  const err = (label, e) => { if (e) console.warn('[mgmt] ' + label, e.message || e); };
+  let syncError = false, syncWarned = false, retryT = null;
+  const err = (label, e) => { if (e) { syncError = true; console.warn('[mgmt] ' + label, e.message || e); } };
   const sel = async (t, cols) => { try { const { data, error } = await SB.from(t).select(cols || '*'); if (error) { err(t, error); return []; } return data || []; } catch (e) { err(t, e); return []; } };
 
   // ---------------- hydrate: pull everything into the app shapes ----------------
@@ -400,7 +401,7 @@
   const syncUp = async () => {
     if (!online) return;
     if (syncing) { pending = true; return; }
-    syncing = true;
+    syncing = true; syncError = false;
     try {
       for (const k of Object.keys(SYNC)) {
         const cfgv = SYNC[k]; const cur = {}; const ups = [];
@@ -414,12 +415,25 @@
       // settings and site content — handled explicitly
       await syncClients(); await syncShifts(); await syncUsers(); await syncAudit();
       await syncServices(); await syncCategories(); await syncSettings(); await syncContent();
-      snapshot();
-      // keep the site ref series ahead of the desk counters (best-effort)
-      for (const p of ['BK', 'OR', 'GF', 'PO']) { const n = db.counters[p]; if (n) { try { await SB.rpc('bump_ref', { p_prefix: p, p_to: n }); } catch (e) {} } }
-    } catch (e) { err('syncUp', e); }
+      // Only record everything as "saved" when every write actually landed.
+      // On failure we leave the snapshot untouched so the changed rows stay
+      // dirty and get retried, instead of being silently dropped.
+      if (!syncError) {
+        snapshot();
+        // keep the site ref series ahead of the desk counters (best-effort)
+        for (const p of ['BK', 'OR', 'GF', 'PO']) { const n = db.counters[p]; if (n) { try { await SB.rpc('bump_ref', { p_prefix: p, p_to: n }); } catch (e) {} } }
+      }
+    } catch (e) { syncError = true; err('syncUp', e); }
     syncing = false;
-    if (pending) { pending = false; syncUp(); }
+    if (pending) { pending = false; syncUp(); return; }
+    if (syncError) {
+      // Tell the user once, and keep retrying so their work isn't lost.
+      try { if (window.MgmtUI && MgmtUI.toast && !syncWarned) { syncWarned = true; MgmtUI.toast('Not saved yet — reconnecting. Keep this page open.'); } } catch (e) {}
+      clearTimeout(retryT); retryT = setTimeout(syncUp, 5000);
+    } else if (syncWarned) {
+      syncWarned = false;
+      try { if (window.MgmtUI && MgmtUI.toast) MgmtUI.toast('Saved.'); } catch (e) {}
+    }
   };
 
   const syncClients = async () => {
@@ -460,22 +474,23 @@
   let svcIds = new Set();
   const syncServices = async () => {
     const now = JSON.stringify((db.services || []).map(svcKey)); if (now === svcSnap) return;
-    const withId = [], neu = [], ids = new Set();
+    const withId = [], neu = [], ids = new Set(); let bad = false;
     (db.services || []).forEach((s, i) => { if (s._id != null) { ids.add(s._id); withId.push(toSvcRow(s, i)); } else neu.push(s); });
-    if (withId.length) { const { error } = await SB.from('web_services').upsert(withId, { onConflict: 'id' }); err('web_services', error); }
-    for (const s of neu) { const { data, error } = await SB.from('web_services').insert(toSvcRow(s, 999)).select('id').maybeSingle(); err('web_services ins', error); if (data && data.id != null) { s._id = data.id; s.id = String(data.id); ids.add(data.id); } }
-    const dels = [...svcIds].filter((id) => !ids.has(id)); if (dels.length) { const { error } = await SB.from('web_services').delete().in('id', dels); err('web_services del', error); }
-    svcIds = ids; svcSnap = JSON.stringify((db.services || []).map(svcKey));
+    if (withId.length) { const { error } = await SB.from('web_services').upsert(withId, { onConflict: 'id' }); err('web_services', error); if (error) bad = true; }
+    for (const s of neu) { const { data, error } = await SB.from('web_services').insert(toSvcRow(s, 999)).select('id').maybeSingle(); err('web_services ins', error); if (error) bad = true; if (data && data.id != null) { s._id = data.id; s.id = String(data.id); ids.add(data.id); } }
+    const dels = [...svcIds].filter((id) => !ids.has(id)); if (dels.length) { const { error } = await SB.from('web_services').delete().in('id', dels); err('web_services del', error); if (error) bad = true; }
+    svcIds = ids; if (!bad) svcSnap = JSON.stringify((db.services || []).map(svcKey));
   };
   const slugify = (s) => '/' + String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   const syncCategories = async () => {
     const now = JSON.stringify(db.catMeta || {}); if (now === catSnap) return;
+    let bad = false;
     for (const name of Object.keys(db.catMeta || {})) { const m = db.catMeta[name];
       const patch = { h1: m.h1 || null, intro: m.intro || null, chairs: m.chairs || null, hero_url: m.hero || null };
-      const { data, error } = await SB.from('web_categories').update(patch).eq('name', name).select('name'); err('web_categories upd', error);
-      if (!error && (!data || !data.length)) { const { error: e2 } = await SB.from('web_categories').insert(Object.assign({ name, file: slugify(name), ar: '', sort: 99, active: true }, patch)); err('web_categories ins', e2); }
+      const { data, error } = await SB.from('web_categories').update(patch).eq('name', name).select('name'); err('web_categories upd', error); if (error) bad = true;
+      if (!error && (!data || !data.length)) { const { error: e2 } = await SB.from('web_categories').insert(Object.assign({ name, file: slugify(name), ar: '', sort: 99, active: true }, patch)); err('web_categories ins', e2); if (e2) bad = true; }
     }
-    catSnap = now;
+    if (!bad) catSnap = now;
   };
   const syncSettings = async () => {
     const now = JSON.stringify(settingsKeys()); if (now === setSnap) return;
