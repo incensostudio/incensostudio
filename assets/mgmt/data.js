@@ -257,6 +257,12 @@
   }
   if (db && !db.income) db.income = [];
 
+  // Boot snapshot of whatever this device had cached locally, taken BEFORE the
+  // first hydrate() overwrites it with server data. Used to recover unsynced
+  // work (e.g. edits made while a save was silently failing) — see recover().
+  let bootLocal = null;
+  try { if (online && db && !db.blank) bootLocal = JSON.parse(JSON.stringify(db)); } catch (e) {}
+
   const cache = () => { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) {} };
   const log = (action, ref, by) => { db.audit.unshift({ id: 'a' + Date.now() + Math.floor(Math.random() * 1e4), at: new Date().toISOString(), action, ref, by, _new: true }); if (db.audit.length > 200) db.audit.length = 200; };
   const nextRef = (kind) => kind + pad(++db.counters[kind]);
@@ -379,6 +385,7 @@
     svcIds = new Set((db.services || []).map((s) => s._id).filter((x) => x != null));
     galSnap = JSON.stringify(db.settings.gallery || []); spcSnap = JSON.stringify(db.settings.space || []); pgSnap = JSON.stringify(db.settings.legal || {});
     snapshot(); cache(); notify('hydrate');
+    recover();
   };
 
   // ---------------- write-back: snapshot-diff upsert (only rows the desk touched) ----------------
@@ -450,6 +457,11 @@
     });
     if (profs.length) { const { error } = await SB.from('profiles').upsert(profs, { onConflict: 'id' }); err('profiles', error); }
     if (cliRows.length) { const { error } = await SB.from('clients').upsert(cliRows, { onConflict: 'id' }); err('clients', error); }
+    // deletions: desk-owned client rows present at last snapshot but since removed.
+    // Never touch website profiles — only rows the desk itself created/owns.
+    const live = new Set((db.clients || []).map((c) => c.id));
+    const gone = Object.keys(cs).filter((id) => !live.has(id) && clientIds.has(id) && !profileIds.has(id));
+    if (gone.length) { const { error } = await SB.from('clients').delete().in('id', gone); err('clients del', error); if (!error) gone.forEach((id) => clientIds.delete(id)); }
   };
   const syncShifts = async () => {
     const rows = []; const S = db.shifts || {};
@@ -511,6 +523,35 @@
 
   let saveT = null;
   const save = (what) => { cache(); notify(what); if (online) { clearTimeout(saveT); saveT = setTimeout(syncUp, 500); } };
+
+  // ---------------- recover: push this device's unsynced local work up ----------------
+  // If an earlier session made changes that never reached the server (e.g. a save
+  // that silently failed), those rows are still in this device's boot cache. After
+  // hydrate we compare that cache to the server and re-apply any local additions or
+  // edits, then sync them. One-shot per load; safe no-op when nothing differs.
+  const isAyaYahya = (name) => /^\s*aya\s+yahya\s*$/i.test(name || '');
+  const recover = () => {
+    if (!bootLocal) return; const L = bootLocal; bootLocal = null; let n = 0;
+    // pk-keyed collections (bookings, orders, gifts, products, blocks, staff, …)
+    Object.keys(SYNC).forEach((k) => {
+      const cfgv = SYNC[k]; const cur = {}; (db[k] || []).forEach((r) => { const id = cfgv.pk(r); if (id != null) cur[id] = r; });
+      (L[k] || []).forEach((lr) => { const id = cfgv.pk(lr); if (id == null) return; const ex = cur[id];
+        if (!ex) { (db[k] = db[k] || []).push(lr); n++; }
+        else { try { if (JSON.stringify(cfgv.to(ex)) !== JSON.stringify(cfgv.to(lr))) { Object.assign(ex, lr); n++; } } catch (e) {} } });
+    });
+    // clients — match by id or phone; never bring back the deleted "Aya yahya"
+    const byId = {}, byPhone = {}; (db.clients || []).forEach((c) => { byId[c.id] = c; if (c.phone) byPhone[digitsP(c.phone)] = c; });
+    (L.clients || []).forEach((lc) => { if (isAyaYahya(lc.name)) return; const ex = byId[lc.id] || (lc.phone && byPhone[digitsP(lc.phone)]);
+      if (!ex) { (db.clients = db.clients || []).push(lc); n++; }
+      else { try { if (clientKey(ex) !== clientKey(lc)) { Object.assign(ex, lc); n++; } } catch (e) {} } });
+    // services — restore local edits (prices, mins, names) onto the matching row
+    const svcById = {}, svcByName = {}; (db.services || []).forEach((s) => { if (s._id != null) svcById[s._id] = s; svcByName[s.name] = s; });
+    (L.services || []).forEach((ls) => { const ex = (ls._id != null && svcById[ls._id]) || svcByName[ls.name];
+      if (ex) { try { if (svcKey(ex) !== svcKey(ls)) { Object.assign(ex, ls); n++; } } catch (e) {} } });
+    // desk-owned settings — restore local values that differ
+    try { CFG_KEYS.forEach((key) => { if (L.settings && L.settings[key] !== undefined && JSON.stringify(L.settings[key]) !== JSON.stringify(db.settings[key])) { db.settings[key] = L.settings[key]; n++; } }); } catch (e) {}
+    if (n) { cache(); notify('recover'); if (online) { clearTimeout(saveT); saveT = setTimeout(syncUp, 300); } try { if (window.MgmtUI && MgmtUI.toast) MgmtUI.toast('Restoring ' + n + ' unsaved change' + (n > 1 ? 's' : '') + ' from this device…'); } catch (e) {} }
+  };
   const reset = (mode) => {
     if (online) { hydrate(); return; }   // never wipe the server from the desk; just re-pull
     try { if (mode === 'blank') localStorage.setItem(BLANK, '1'); else localStorage.removeItem(BLANK); } catch (e) {}
