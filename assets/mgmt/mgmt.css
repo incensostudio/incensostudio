@@ -1,7 +1,7 @@
 /* Incenso Management — v3 UI. Pro salon-software feel on the Incenso palette: cream ground, ivory surfaces, chair colours as the calendar language. */
 :root{--font-sans:"Geist","Helvetica Neue",Helvetica,Arial,sans-serif;--font-mono:"Geist Mono",ui-monospace,"SF Mono",Menlo,monospace;--bg:#e9e2d3;--bg-deep:#e5dcc9;--fg:#111;--cream:#FEFEF1;--surface:#FDFCF6;--surface-2:#F5F1E6;--line:rgba(17,17,17,0.10);--line-strong:rgba(17,17,17,0.18);--muted:rgba(17,17,17,0.62);--faint:rgba(17,17,17,0.42);--ok:#1F9A56;--ok-bg:#E3F3E9;--warn:#B7791F;--warn-bg:#F8ECD6;--bad:#B42318;--bad-bg:#F9E3E0;--info:#2563EB;--info-bg:#E4ECFB;--shadow-1:0 1px 2px rgba(17,17,17,.05),0 1px 0 rgba(17,17,17,.04);--shadow-2:0 8px 24px rgba(17,17,17,.10),0 2px 6px rgba(17,17,17,.06);--r-lg:18px;--r-md:12px;--r-sm:8px;--tab-h:64px;--top-h:56px;--sat:env(safe-area-inset-top);--sab:env(safe-area-inset-bottom);--hour-h:72px}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html{background:var(--bg)}
+html{background:var(--bg);touch-action:manipulation}
 body{margin:0;font-family:var(--font-sans);color:var(--fg);background:var(--bg);-webkit-font-smoothing:antialiased;min-height:100vh;overscroll-behavior-y:none;font-size:14px;line-height:1.4}
 a{color:var(--fg)}a:hover{color:#000}
 button{font-family:inherit;color:var(--fg);cursor:pointer}
