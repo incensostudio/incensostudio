@@ -268,10 +268,11 @@ test('orders: a website order reaches the desk; the desk marks it collected → 
   expect(r && r.user_id === P.guest.id && r.total === 30 && r.status === 'Ready for pickup', 'website order saved', r);
   const d = await H.desk(P.owner);
   const seen = await M(d, (ref) => { const o = window.IncensoMgmt.db.orders.find((x) => x.ref === ref); return o && { total: o.total, items: o.items.length, name: o.name, status: o.status }; }, ref);
-  expect(seen && seen.total === 30 && seen.items === 1 && seen.name === P.guest.name, 'desk sees the order', seen);
+  expect(seen && seen.total === 30 && seen.items === 1 && seen.name === P.guest.name && seen.status === 'ready', 'desk sees the order as ready for pickup', seen);
+  const untouched = rows(H, 'orders').find((o) => o.ref === ref); expect(untouched.status === 'Ready for pickup' && untouched.method === 'Studio pickup', 'desk loading it does not rewrite the order', untouched);
   await M(d, (ref) => { const M = window.IncensoMgmt; const o = M.db.orders.find((x) => x.ref === ref); o.status = 'collected'; o.payStatus = 'paid'; M.save(); }, ref);
   await H.settle(d); await noSaveErrors(H, d);
-  const r2 = rows(H, 'orders').find((o) => o.ref === ref); expect(/collect/i.test(r2.status) && r2.pay_status === 'paid', 'collected + paid saved', { status: r2.status, pay_status: r2.pay_status });
+  const r2 = rows(H, 'orders').find((o) => o.ref === ref); expect(r2.status === 'Collected' && r2.pay_status === 'paid' && r2.method === 'Studio pickup' && r2.pay === 'Pay at studio', 'saved in the website’s words: Collected, paid, still a studio pickup', { status: r2.status, pay_status: r2.pay_status, method: r2.method, pay: r2.pay });
   await g.reload(); await g.waitForTimeout(1500);
   const st = await g.evaluate((ref) => (window.IncensoAuth.get().orders || []).find((o) => o.ref === ref), ref);
   expect(st && /collect/i.test(st.status), 'customer sees it collected', st && st.status);
@@ -390,6 +391,29 @@ test('access: an owner turns off a stylist’s access — another owner’s olde
   expect(st().active === false, 'still off after the other phone saved', st());
   const n = H.fake.log.filter((e) => e.method === 'PATCH' && e.path === '/rest/v1/desk_users').length;
   expect(n === 1, 'only the one real change was sent', n);
+});
+
+test('shop → cart → checkout through the real pages: photo shows in cart, order saved, desk sees it', async (H, P) => {
+  H.fake.seed('web_products', [{ name: 'THICK HAIR SHAMPOO', price: 65, stock: 5, cat: 'hair', category: 'Hair', note: 'For thick hair.', details: 'Long copy.', images: ['https://x/s1.jpg', 'https://x/s2.jpg', 'https://x/s3.jpg'], image_url: 'https://x/s1.jpg', active: true }]);
+  const w = await H.open('web', 'shop.html', P.guest); await shopCards(w);
+  await w.locator('#shelf article.product .add').first().click(); await w.waitForTimeout(500);
+  await w.goto(H.WEB + '/cart.html'); await w.waitForTimeout(1200);
+  const cartImg = await w.evaluate(() => [...document.querySelectorAll('img')].map((i) => i.getAttribute('src')).filter((s) => /x\/s1/.test(s || '')));
+  expect(cartImg.length >= 1, 'the cart shows the product photo', await w.evaluate(() => (document.querySelector('.l-photo') || {}).outerHTML));
+  await w.goto(H.WEB + '/checkout.html'); await w.waitForTimeout(1500);
+  if (!(await w.inputValue('#fName'))) await w.fill('#fName', P.guest.name);
+  if (!(await w.inputValue('#fPhone'))) await w.fill('#fPhone', P.guest.phone.slice(3));
+  await w.click('#placeBtn'); await w.waitForTimeout(3000);
+  const errs = w.__logs.filter((l) => /PAGEERROR|failed|error/i.test(l)); 
+  const coImg = await w.evaluate(() => [...document.querySelectorAll('img')].map((i) => i.getAttribute('src')).filter((s) => /x\/s1/.test(s || '')));
+  expect(coImg.length >= 1, 'the order confirmation shows the product photo', coImg);
+  const r = rows(H, 'orders'); expect(r.length === 1, 'the order reached the database', { orders: r.length, logs: errs, calls: H.fake.log.filter((e) => /orders|next_ref|profiles/.test(e.path) && e.method !== 'GET').map((e) => e.method + ' ' + e.path + ' ' + e.status + ' ' + JSON.stringify(e.error)) });
+  expect(r[0].total === 65 && r[0].user_id === P.guest.id && (r[0].items || []).some((i) => i.name === 'THICK HAIR SHAMPOO'), 'order has the right item, total and customer', r[0]);
+  const d = await H.desk(P.owner, 'orders');
+  const seen = await M(d, (ref) => !!window.IncensoMgmt.db.orders.find((o) => o.ref === ref), r[0].ref);
+  expect(seen, 'the order shows in management');
+  const txt = await d.evaluate(() => document.body.innerText);
+  expect(/1 open/.test(txt) && txt.includes(P.guest.name) && /READY FOR PICKUP\s+1/i.test(txt), 'the order is listed as open / ready for pickup on the Orders screen', txt.slice(0, 900));
 });
 
 test('newsletter: a visitor signs up from the website footer (twice) and the number is saved once', async (H, P) => {
