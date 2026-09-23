@@ -1,0 +1,35 @@
+name: End-to-end sync tests
+# Runs the real management app + the real website against a strict fake Supabase that
+# enforces the live schema, row-level security and triggers (tests/e2e).
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 5 * * *'   # daily, also catches website changes
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: incensostudio/incensostudio.github.io
+          path: website
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install
+        working-directory: tests/e2e
+        run: npm ci && npx playwright-core install --with-deps chromium
+      - name: Run
+        working-directory: tests/e2e
+        env:
+          WEBSITE_DIR: ${{ github.workspace }}/website
+        run: node run.js
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-results
+          path: tests/e2e/results.json

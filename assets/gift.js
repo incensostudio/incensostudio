@@ -54,18 +54,30 @@
   };
 
   // ---- Issue (buy) a card. Server forces Reserved/unconfirmed. ----
+  // The insert is async; pages must await flush() before navigating away, or the browser cancels it.
+  let pendingIssue = Promise.resolve();
   const issue = (v) => {
     const card = Object.assign({ balance: v.amount, redemptions: [], status: 'Reserved', confirmed: false, created: new Date().toISOString(), expires: '' }, v);
     cards = cards.filter((x) => x.code !== v.code); cards.unshift(card); saveCache();
     if (SB) {
-      SB.from('gift_cards').insert({
-        code: v.code, amount: v.amount, to_name: v.to || null, to_phone: v.toPhone || null,
-        from_name: v.from || null, msg: v.msg || null, color: v.color || null,
-        buyer_name: v.buyerName || null, buyer_phone: v.buyerPhone || null, pay: v.pay || null,
-      }).then(({ error }) => { if (error) console.warn('[Incenso] gift issue', error); refresh(); }, () => {});
+      pendingIssue = (async () => {
+        try {
+          // The insert policy requires buyer_id = the signed-in user. Read it from the local session (no network hop).
+          let uid = null;
+          try { const s = await SB.auth.getSession(); uid = s && s.data && s.data.session ? s.data.session.user.id : null; } catch (e) {}
+          if (!uid) { const u = await SB.auth.getUser(); uid = u && u.data && u.data.user ? u.data.user.id : null; }
+          const { error } = await SB.from('gift_cards').insert({
+            code: v.code, amount: v.amount, to_name: v.to || null, to_phone: v.toPhone || null,
+            from_name: v.from || null, msg: v.msg || null, color: v.color || null,
+            buyer_id: uid, buyer_name: v.buyerName || null, buyer_phone: v.buyerPhone || null, pay: v.pay || null,
+          });
+          if (error) console.warn('[Incenso] gift issue', error); else refresh();
+        } catch (e) { console.warn('[Incenso] gift issue', e); }
+      })();
     }
     return v;
   };
+  const flush = () => pendingIssue;
 
   // ---- Spend / restore (server-authoritative via RPC; cache updated optimistically) ----
   const redeem = (code, amount, ref, what) => {
@@ -89,5 +101,5 @@
   const pending = () => cards.filter((x) => !confirmed(x));
   const update = (code, fn) => { const x = byCode(code); if (x) { fn(x); saveCache(); } return x; };
 
-  window.IncensoGift = { deadlineOf, cancelled, load, issue, update, byCode, forPhone, boughtBy, active, redeem, refund, confirm, confirmed, pending, attach, refresh, totalFor, same, cardsFor, spendable, balanceFor, redeemFrom, refundParts };
+  window.IncensoGift = { flush, deadlineOf, cancelled, load, issue, update, byCode, forPhone, boughtBy, active, redeem, refund, confirm, confirmed, pending, attach, refresh, totalFor, same, cardsFor, spendable, balanceFor, redeemFrom, refundParts };
 })();

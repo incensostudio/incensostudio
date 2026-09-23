@@ -109,6 +109,19 @@
 
   let currentUid = null;
   let lastPersist = Promise.resolve();
+  // What the server last had for each of this guest's bookings/orders. persist() only writes rows
+  // that changed on this device since then — so an open page holding an old copy can never undo
+  // what the studio changed (a cancel, a new time, a payment) when the guest saves something else.
+  const SYNCKEY = 'incenso-synced';
+  let synced = { uid: null, rows: {} };
+  try { synced = JSON.parse(localStorage.getItem(SYNCKEY) || 'null') || synced; } catch (e) {}
+  const saveSynced = () => { try { localStorage.setItem(SYNCKEY, JSON.stringify(synced)); } catch (e) {} };
+  const markSynced = (uid, a) => {
+    synced = { uid, rows: {} };
+    (a.bookings || []).forEach((b) => { synced.rows['b:' + b.ref] = JSON.stringify(bkToRow(b, uid)); });
+    (a.orders || []).forEach((o) => { synced.rows['o:' + o.ref] = JSON.stringify(orToRow(o, uid)); });
+    saveSynced();
+  };
   const persist = async (a) => {
     if (!SB || !a) return;
     try {
@@ -120,8 +133,13 @@
       if (!user) return;
       const uid = user.id; currentUid = uid;
       await SB.from('profiles').upsert({ id: uid, phone: a.phone || null, name: a.name || null, email: a.email || null, birthday: a.birthday || null, photo_url: a.photo || null, prefs: a.prefs || {}, tier: (tierFor(yearSpend(a)) || {}).name || 'Member', spend_12mo: yearSpend(a), updated_at: new Date().toISOString() }, { onConflict: 'id' });
-      if ((a.bookings || []).length) await SB.from('bookings').upsert(a.bookings.map((b) => bkToRow(b, uid)), { onConflict: 'ref' });
-      if ((a.orders || []).length) await SB.from('orders').upsert(a.orders.map((o) => orToRow(o, uid)), { onConflict: 'ref' });
+      if (synced.uid !== uid) synced = { uid, rows: {} };
+      const dirty = (kind, row) => synced.rows[kind + row.ref] !== JSON.stringify(row);
+      const bRows = (a.bookings || []).map((b) => bkToRow(b, uid)).filter((r) => dirty('b:', r));
+      const oRows = (a.orders || []).map((o) => orToRow(o, uid)).filter((r) => dirty('o:', r));
+      if (bRows.length) { const { error } = await SB.from('bookings').upsert(bRows, { onConflict: 'ref' }); if (error) console.warn('[Incenso] bookings save failed', error); else bRows.forEach((r) => { synced.rows['b:' + r.ref] = JSON.stringify(r); }); }
+      if (oRows.length) { const { error } = await SB.from('orders').upsert(oRows, { onConflict: 'ref' }); if (error) console.warn('[Incenso] orders save failed', error); else oRows.forEach((r) => { synced.rows['o:' + r.ref] = JSON.stringify(r); }); }
+      saveSynced();
       if ((a.restocks || []).length) await SB.from('restock_requests').upsert(a.restocks.map((r) => ({ user_id: uid, product: r.name, phone: a.phone || null })), { onConflict: 'user_id,product' });
     } catch (e) { console.warn('[Incenso] persist failed', e); }
   };
@@ -158,6 +176,7 @@
         bookings: (bk.data || []).map(bkFromRow), orders: (od.data || []).map(orFromRow),
         restocks: (rs.data || []).map((r) => ({ name: r.product, date: (r.created_at || '').slice(0, 10) })), visits: [] };
       a.visits = a.bookings.filter((b) => /complete/i.test(b.status || '')).map((b) => ({ date: b.date, price: b.price, service: b.service }));
+      markSynced(uid, a);
       if (window.IncensoGift && window.IncensoGift.attach) { try { await window.IncensoGift.attach(a); } catch (e) {} }
       return a;
     } catch (e) { console.warn('[Incenso] hydrate failed', e); return null; }
@@ -425,7 +444,9 @@
     const cc = nf.querySelector('.pc-cc');
     const full = ((cc ? cc.value : '') + ' ' + raw.trim()).trim();
     const done = () => { nf.innerHTML = '<span class="news-done">Noted ✦ We’ll keep you up to date</span>'; };
-    if (SB) { SB.from('newsletter').upsert({ phone: e164(full) }, { onConflict: 'phone' }).then(() => {}, () => {}); }
+    // Plain insert: visitors may add a number but not read the list, and an upsert (ON CONFLICT) needs read
+    // access, so it was always rejected. A repeat sign-up just hits the unique key and is ignored.
+    if (SB) { SB.from('newsletter').insert({ phone: e164(full) }).then(({ error }) => { if (error && error.code !== '23505') console.warn('[Incenso] newsletter', error); }, () => {}); }
     const accDigits = acc ? digits(acc.phone) : '';
     if (acc && accDigits && (accDigits === dd || accDigits.endsWith(dd) || dd.endsWith(accDigits))) { done(); return; }
     open(done, full);

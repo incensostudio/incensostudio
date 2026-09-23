@@ -1,0 +1,7 @@
+{
+  "name": "incenso-e2e",
+  "private": true,
+  "description": "End-to-end sync tests: real management + website code against a strict fake Supabase that enforces the live schema, RLS and triggers.",
+  "scripts": { "test": "node run.js" },
+  "devDependencies": { "@supabase/supabase-js": "2.117.1", "playwright-core": "^1.55.0" }
+}

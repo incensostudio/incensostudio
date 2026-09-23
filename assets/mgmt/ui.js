@@ -202,7 +202,7 @@
     try {
       const blob = await (await fetch(dataUrl)).blob();
       const path = 'uploads/' + Date.now() + '-' + Math.random().toString(16).slice(2) + '.jpg';
-      const up = await SB.storage.from('studio').upload(path, blob, { contentType: 'image/jpeg', upsert: true });
+      const up = await SB.storage.from('studio').upload(path, blob, { contentType: 'image/jpeg', upsert: false });   // unique path — upsert would need extra storage permissions
       if (up.error) { console.warn('[mgmt] upload', up.error.message); toast('Upload failed: ' + (up.error.message || 'unknown')); return dataUrl; }
       const { data } = SB.storage.from('studio').getPublicUrl(path);
       return (data && data.publicUrl) || dataUrl;

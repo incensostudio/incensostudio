@@ -246,10 +246,14 @@
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const digitsP = (p) => String(p || '').replace(/\D/g, '');
 
+  // Signed-in (online) devices start EMPTY: every record comes from the server. The demo
+  // template is only for the offline design preview — it must never reach the database.
+  const emptyOnline = () => { const b = blank(); Object.assign(b, { products: [], supplies: [], suppliers: [], staff: [], services: [], clients: [], users: [] }); b.online = true; b.blank = false; return b; };
+  const BASE_KEY = KEY + '-base';
   let db;
   if (online) {
     try { db = JSON.parse(localStorage.getItem(KEY)); } catch (e) {}
-    if (!db || db.online !== true) { db = blank(); db.online = true; db.blank = false; }
+    if (!db || db.online !== true) db = emptyOnline();
   } else {
     try { db = JSON.parse(localStorage.getItem(KEY)); } catch (e) {}
     if (isBlank() && (!db || !db.blank)) db = blank();
@@ -260,8 +264,11 @@
   // Boot snapshot of whatever this device had cached locally, taken BEFORE the
   // first hydrate() overwrites it with server data. Used to recover unsynced
   // work (e.g. edits made while a save was silently failing) — see recover().
-  let bootLocal = null;
-  try { if (online && db && !db.blank) bootLocal = JSON.parse(JSON.stringify(db)); } catch (e) {}
+  // Only a cache that came from the server (hydratedAt) and carries its last-synced baseline
+  // can tell "changed here, never saved" apart from "deleted/edited on another device".
+  let bootLocal = null, bootBase = null;
+  try { if (online && db && db.hydratedAt) { bootBase = JSON.parse(localStorage.getItem(BASE_KEY) || 'null'); if (bootBase && bootBase.snap) bootLocal = JSON.parse(JSON.stringify(db)); } } catch (e) {}
+  const persistBase = () => { try { localStorage.setItem(BASE_KEY, JSON.stringify({ snap, svcSnap, setSnap, at: Date.now() })); } catch (e) {} };
 
   const cache = () => { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) {} };
   const log = (action, ref, by) => { db.audit.unshift({ id: 'a' + Date.now() + Math.floor(Math.random() * 1e4), at: new Date().toISOString(), action, ref, by, _new: true }); if (db.audit.length > 200) db.audit.length = 200; };
@@ -284,8 +291,8 @@
   const fromOr = (r) => ({ ref: r.ref, clientId: r.user_id || null, name: r.name, phone: r.phone, email: r.email, items: r.items || [], total: r.total, method: payCode(r.method || r.pay), status: r.status, payStatus: r.pay_status, fulfil: r.fulfil || ((r.address && (r.address.text || r.address.line1)) ? 'delivery' : 'pickup'), delivery: r.delivery || 0, address: (r.address && (r.address.text || r.address)) || '', discount: r.discount || 0, tier: r.tier, gift: (r.gift && r.gift.amount) ? r.gift : null, giftParts: (r.gift && r.gift.parts) || r.gift_parts || [], courier: r.courier || null, source: r.source || 'web', soldBy: r.sold_by, refund: r.refund || 0, refundSent: r.refund_sent, partial: r.partial, cardLink: r.card_link, placedAt: r.placed_at ? new Date(r.placed_at).getTime() : undefined, deadline: r.deadline || r.pay_deadline, cancelReason: r.cancel_reason, cancelledAt: r.cancelled_at, notes: r.notes, toPay: r.to_pay });
   const toOr = (o) => ({ ref: o.ref, user_id: (o.clientId && profileIds.has(o.clientId)) ? o.clientId : null, items: o.items || [], total: o.total || 0, method: o.method || null, pay: PAY_LBL[o.method] || o.pay || null, name: o.name || null, phone: o.phone || null, email: o.email || null, address: typeof o.address === 'string' ? { text: o.address } : (o.address || {}), status: o.status || 'placed', pay_status: o.payStatus || null, discount: o.discount || 0, tier: o.tier || null, gift: o.gift || null, gift_parts: o.giftParts || [], courier: o.courier || null, source: o.source || null, sold_by: o.soldBy || null, refund: o.refund || 0, refund_sent: !!o.refundSent, partial: !!o.partial, fulfil: o.fulfil || null, delivery: o.delivery || 0, card_link: o.cardLink || null, deadline: o.deadline || null, cancelled_at: o.cancelledAt || null, cancel_reason: o.cancelReason || null, notes: o.notes || null, to_pay: (o.toPay != null ? o.toPay : null), placed_at: o.placedAt ? new Date(o.placedAt).toISOString() : null });
 
-  const fromGf = (r) => ({ code: r.code, amount: r.amount, balance: r.balance, buyerId: r.buyer_id, buyerName: r.buyer_name, buyerPhone: r.buyer_phone, from: r.from_name, to: r.to_name, toPhone: r.to_phone, message: r.msg, method: payCode(r.pay), status: r.status, hold: r.hold, createdAt: r.created_at, expiry: r.expires_at, deadline: r.deadline, redemptions: r.redemptions || [], uses: r.uses || r.redemptions || [], cancelReason: r.cancel_reason, soldBy: r.sold_by, color: r.color });
-  const toGf = (g) => ({ code: g.code, amount: g.amount, balance: g.balance, buyer_id: (g.buyerId && profileIds.has(g.buyerId)) ? g.buyerId : null, buyer_name: g.buyerName || (g.buyerId && (db.clients.find((c) => c.id === g.buyerId) || {}).name) || null, buyer_phone: g.buyerPhone || null, from_name: g.from || null, to_name: g.to || null, to_phone: g.toPhone || null, msg: g.message || null, pay: PAY_LBL[g.method] || g.method || null, status: g.status || 'Reserved', hold: !!g.hold, confirmed: g.status !== 'Reserved', created_at: g.createdAt || new Date().toISOString(), expires_at: g.expiry || null, deadline: g.deadline || null, redemptions: g.uses || g.redemptions || [], uses: g.uses || [], cancel_reason: g.cancelReason || null, sold_by: g.soldBy || null, color: g.color || null });
+  const fromGf = (r) => ({ code: r.code, amount: r.amount, balance: r.balance, buyerId: r.buyer_id, buyerName: r.buyer_name, buyerPhone: r.buyer_phone, from: r.from_name, to: r.to_name, toPhone: r.to_phone, message: r.msg, method: payCode(r.pay), status: r.status, hold: r.hold, createdAt: r.created_at, expiry: r.expires_at, deadline: r.deadline, redemptions: (r.redemptions || []).map((x) => Object.assign({ at: x.at || x.date }, x)), cancelReason: r.cancel_reason, soldBy: r.sold_by, color: r.color });
+  const toGf = (g) => ({ code: g.code, amount: g.amount, balance: g.balance, buyer_id: (g.buyerId && profileIds.has(g.buyerId)) ? g.buyerId : null, buyer_name: g.buyerName || (g.buyerId && (db.clients.find((c) => c.id === g.buyerId) || {}).name) || null, buyer_phone: g.buyerPhone || null, from_name: g.from || null, to_name: g.to || null, to_phone: g.toPhone || null, msg: g.message || null, pay: PAY_LBL[g.method] || g.method || null, status: g.status || 'Reserved', hold: !!g.hold, confirmed: g.status !== 'Reserved', created_at: g.createdAt || new Date().toISOString(), expires_at: g.expiry || null, deadline: g.deadline || null, redemptions: g.redemptions || [], cancel_reason: g.cancelReason || null, sold_by: g.soldBy || null, color: g.color || null });
 
   const titleCat = (c) => c ? String(c).charAt(0).toUpperCase() + String(c).slice(1) : '';
   const fromProd = (r) => { const imgs = (Array.isArray(r.images) && r.images.length) ? r.images.filter(Boolean) : (r.image_url ? [r.image_url] : []); return { id: r.id, name: r.name, brand: r.brand || '', price: r.price, cost: r.cost != null ? Number(r.cost) : Math.round((r.price || 0) * 0.55), stock: r.stock || 0, low: r.low || 0, restocks: 0, sold30: 0, active: r.active !== false, image: imgs[0] || null, images: imgs, category: r.category || titleCat(r.cat) || 'Home', note: r.note || '', desc: r.details || r.descr || '', sku: r.sku || '' }; };
@@ -338,15 +345,18 @@
     }
     syncError = true;
   };
-  const sel = async (t, cols) => { try { const { data, error } = await SB.from(t).select(cols || '*'); if (error) { err(t, error); return []; } return data || []; } catch (e) { err(t, e); return []; } };
+  let loadFailed = false;
+  const sel = async (t, cols) => { try { const { data, error } = await SB.from(t).select(cols || '*'); if (error) { loadFailed = true; err(t, error); return []; } return data || []; } catch (e) { loadFailed = true; err(t, e); return []; } };
 
   // ---------------- hydrate: pull everything into the app shapes ----------------
   let snap = {};
   const clientKey = (c) => JSON.stringify({ name: c.name, email: c.email, birthday: c.birthday, photo: c.photo, notes: c.notes, tags: c.tags, newsletter: c.newsletter, blocked: c.blocked, no_shows: c.no_shows, tier: c.tier, phone: c.phone, src: c._src });
-  const snapshot = () => { const s = {}; Object.keys(SYNC).forEach((k) => { s[k] = {}; (db[k] || []).forEach((row) => { const key = SYNC[k].pk(row); if (key != null) s[k][key] = JSON.stringify(SYNC[k].to(row)); }); }); s.clients = {}; (db.clients || []).forEach((c) => { if (c.id != null) s.clients[c.id] = clientKey(c); }); snap = s; };
+  const snapshot = () => { const s = {}; Object.keys(SYNC).forEach((k) => { s[k] = {}; (db[k] || []).forEach((row) => { const key = SYNC[k].pk(row); if (key != null) s[k][key] = JSON.stringify(SYNC[k].to(row)); }); }); s.clients = {}; (db.clients || []).forEach((c) => { if (c.id != null) s.clients[c.id] = clientKey(c); }); s.users = {}; (db.users || []).forEach((u) => { if (u._id) s.users[u._id] = JSON.stringify(userRow(u)); }); snap = s; };
 
+  let hydrateT = null;
   const hydrate = async () => {
     if (!online) return;
+    loadFailed = false;
     const [bk, od, gf, wp, ws, prof, cli, sup, po, sp, ex, inc, po2, bl, du, wl, nl, au, cfg, gal, spc, pg, rc] = await Promise.all([
       sel('bookings'), sel('orders'), sel('gift_cards'), sel('web_products'), sel('web_staff'),
       sel('profiles'), sel('clients'), sel('suppliers'), sel('purchase_orders'), sel('supplies'),
@@ -355,7 +365,13 @@
       sel('web_space'), sel('web_pages'), sel('ref_counters'),
     ]);
     const [shf, wsv, wcat] = await Promise.all([sel('shifts'), sel('web_services'), sel('web_categories')]);
-    if (wsv.length) db.services = wsv.map(fromSvc);
+    // A partial load must never become the baseline: empty tables would read as "everything was
+    // deleted" and the next save could wipe or duplicate data. Keep what we have and try again.
+    if (loadFailed) {
+      try { if (window.MgmtUI && MgmtUI.toast) MgmtUI.toast('Couldn’t load everything from the studio database — retrying…'); } catch (e) {}
+      clearTimeout(hydrateT); hydrateT = setTimeout(hydrate, 5000); notify('hydrate'); return;
+    }
+    db.services = wsv.map(fromSvc);
     if (wcat.length) { db.catMeta = {}; wcat.forEach((c) => { db.catMeta[c.name] = { h1: c.h1, intro: c.intro, chairs: c.chairs, hero: c.hero_url || null }; }); }
     // clients = profiles ∪ clients, deduped by phone (profile identity wins)
     profileIds = new Set(prof.map((p) => p.id)); clientIds = new Set(cli.map((c) => c.id));
@@ -366,8 +382,8 @@
     db.bookings = bk.map(fromBk);
     db.orders = od.map(fromOr);
     db.gifts = gf.map(fromGf);
-    db.products = wp.length ? wp.map(fromProd) : db.products;
-    db.staff = ws.length ? ws.map(fromStaff) : db.staff;
+    db.products = wp.map(fromProd);   // the server is the truth — empty means empty
+    db.staff = ws.map(fromStaff);
     db.suppliers = sup.map(fromSupplier);
     db.purchases = po.map(fromPO);
     db.supplies = sp.map(fromSupply);
@@ -393,12 +409,12 @@
     if (spc.length) db.settings.space = spc.map((s) => ({ id: s.id, image: s.image_url, caption: s.caption }));
     if (pg.length) { db.settings.legal = db.settings.legal || {}; pg.forEach((p) => { db.settings.legal[p.key] = p.body; }); }
     // counters from ref_counters (so desk refs continue the site series)
-    const cc = {}; rc.forEach((r) => { cc[r.prefix] = Number(r.n) || 0; }); db.counters = Object.assign({ BK: 0, OR: 0, GF: 0, PO: 0 }, cc);
-    db.blank = false; db.online = true;
+    const cc = {}; rc.forEach((r) => { cc[r.prefix] = Number(r.n) || 0; }); db.counters = Object.assign({ BK: 0, OR: 0, GF: 0, PO: 0 }, cc); bumped = Object.assign({}, db.counters);
+    db.blank = false; db.online = true; db.hydratedAt = Date.now();
     svcSnap = JSON.stringify((db.services || []).map(svcKey)); catSnap = JSON.stringify(db.catMeta || {}); setSnap = JSON.stringify(settingsKeys());
     svcIds = new Set((db.services || []).map((s) => s._id).filter((x) => x != null));
     galSnap = JSON.stringify(db.settings.gallery || []); spcSnap = JSON.stringify(db.settings.space || []); pgSnap = JSON.stringify(db.settings.legal || {});
-    snapshot(); cache(); notify('hydrate');
+    snapshot(); persistBase(); cache(); notify('hydrate');
     recover();
   };
 
@@ -418,7 +434,7 @@
     staff:     { table: 'web_staff',       pk: (r) => r.name, to: toStaff,   keyCol: 'name' },
   };
 
-  let syncing = false, pending = false;
+  let syncing = false, pending = false, bumped = {};
   const syncUp = async () => {
     if (!online) return;
     if (syncing) { pending = true; return; }
@@ -440,9 +456,9 @@
       // On failure we leave the snapshot untouched so the changed rows stay
       // dirty and get retried, instead of being silently dropped.
       if (!syncError) {
-        snapshot();
+        snapshot(); persistBase();
         // keep the site ref series ahead of the desk counters (best-effort)
-        for (const p of ['BK', 'OR', 'GF', 'PO']) { const n = db.counters[p]; if (n) { try { await SB.rpc('bump_ref', { p_prefix: p, p_to: n }); } catch (e) {} } }
+        for (const p of ['BK', 'OR', 'GF', 'PO']) { const n = db.counters[p]; if (n && n > (bumped[p] || 0)) { try { const { error } = await SB.rpc('bump_ref', { p_prefix: p, p_to: n }); if (!error) bumped[p] = n; } catch (e) {} } }
       }
     } catch (e) { syncError = true; err('syncUp', e); }
     syncing = false;
@@ -482,9 +498,13 @@
     Object.keys(S).forEach((staff) => Object.keys(S[staff]).forEach((date) => { const v = S[staff][date]; rows.push({ staff, date, off: !!v.off, start_hour: v.start != null ? v.start : null, end_hour: v.end != null ? v.end : null, label: v.label || null }); }));
     if (rows.length) { const { error } = await SB.from('shifts').upsert(rows, { onConflict: 'staff,date' }); err('shifts', error); }
   };
+  const userRow = (u) => ({ phone: u.phone, name: u.name || null, role: u.role || 'desk', staff: u.staff || null, modules: u.modules || [], flags: u.flags || {}, active: u.active !== false });
   const syncUsers = async () => {
+    const us = snap.users || {};
     for (const u of (db.users || [])) {
-      const row = { phone: u.phone, name: u.name || null, role: u.role || 'desk', staff: u.staff || null, modules: u.modules || [], flags: u.flags || {}, active: u.active !== false };
+      const row = userRow(u);
+      // Only people changed on THIS device — re-sending everyone let a stale phone undo another owner's change (e.g. re-activate a removed stylist).
+      if (u._id && us[u._id] === JSON.stringify(row)) continue;
       if (u._id) { const { error } = await SB.from('desk_users').update(row).eq('id', u._id); err('desk_users upd', error); }
       else { const { data, error } = await SB.from('desk_users').insert(row).select('id').maybeSingle(); err('desk_users ins', error); if (data) u._id = data.id; }
     }
@@ -539,37 +559,49 @@
   const save = (what) => { cache(); notify(what); if (online) { clearTimeout(saveT); saveT = setTimeout(syncUp, 500); } };
 
   // ---------------- recover: push this device's unsynced local work up ----------------
-  // If an earlier session made changes that never reached the server (e.g. a save
-  // that silently failed), those rows are still in this device's boot cache. After
-  // hydrate we compare that cache to the server and re-apply any local additions or
-  // edits, then sync them. One-shot per load; safe no-op when nothing differs.
+  // Three-way merge against the last baseline this device saved (bootBase):
+  //   · row unchanged here since the baseline   → the server wins (edited or deleted elsewhere)
+  //   · row changed/added here, server untouched → re-apply it (a save that never landed)
+  //   · both changed, or deleted on the server   → the server wins; never resurrect, never clobber
+  // The demo template and caches without a baseline are never recovered.
   const isAyaYahya = (name) => /^\s*aya\s+yahya\s*$/i.test(name || '');
   const recover = () => {
-    if (!bootLocal) return; const L = bootLocal; bootLocal = null; let n = 0;
-    // pk-keyed collections (bookings, orders, gifts, products, blocks, staff, …)
+    if (!bootLocal || !bootBase) return; const L = bootLocal, B = bootBase; bootLocal = null; bootBase = null; let n = 0;
+    const toJs = (cfgv, row) => { try { return JSON.stringify(cfgv.to(JSON.parse(JSON.stringify(row)))); } catch (e) { return null; } };
     Object.keys(SYNC).forEach((k) => {
-      const cfgv = SYNC[k]; const cur = {}; (db[k] || []).forEach((r) => { const id = cfgv.pk(r); if (id != null) cur[id] = r; });
-      (L[k] || []).forEach((lr) => { const id = cfgv.pk(lr); if (id == null) return; const ex = cur[id];
+      const cfgv = SYNC[k]; const base = (B.snap && B.snap[k]) || {}; const cur = {};
+      (db[k] || []).forEach((r) => { const id = cfgv.pk(r); if (id != null) cur[id] = r; });
+      (L[k] || []).forEach((lr) => {
+        const id = cfgv.pk(lr); if (id == null) return;
+        const mine = toJs(cfgv, lr); if (mine === null || mine === base[id]) return;          // not changed on this device
+        const ex = cur[id];
         if (!ex) {
-          // A cached row can carry an old local id (e.g. 'p1790…') while the server already holds the same
-          // record under its real id. Re-adding it would create a duplicate — for products that trips the
-          // unique-name index and poisons every sync. Skip anything the server already has by its natural key.
+          if (base[id] !== undefined) return;                                                   // was saved, then deleted elsewhere
           if (k === 'products' && (db.products || []).some((p) => (p.name || '').trim().toLowerCase() === (lr.name || '').trim().toLowerCase())) return;
-          (db[k] = db[k] || []).push(lr); n++;
+          (db[k] = db[k] || []).push(lr); n++; return;
         }
-        else { try { if (JSON.stringify(cfgv.to(ex)) !== JSON.stringify(cfgv.to(lr))) { Object.assign(ex, lr); n++; } } catch (e) {} } });
+        if (base[id] !== undefined && toJs(cfgv, ex) !== base[id]) return;                      // changed elsewhere since — theirs is newer
+        Object.assign(ex, lr); n++;
+      });
     });
-    // clients — match by id or phone; never bring back the deleted "Aya yahya"
+    const cbase = (B.snap && B.snap.clients) || {};
     const byId = {}, byPhone = {}; (db.clients || []).forEach((c) => { byId[c.id] = c; if (c.phone) byPhone[digitsP(c.phone)] = c; });
-    (L.clients || []).forEach((lc) => { if (isAyaYahya(lc.name)) return; const ex = byId[lc.id] || (lc.phone && byPhone[digitsP(lc.phone)]);
-      if (!ex) { (db.clients = db.clients || []).push(lc); n++; }
-      else { try { if (clientKey(ex) !== clientKey(lc)) { Object.assign(ex, lc); n++; } } catch (e) {} } });
-    // services — restore local edits (prices, mins, names) onto the matching row
-    const svcById = {}, svcByName = {}; (db.services || []).forEach((s) => { if (s._id != null) svcById[s._id] = s; svcByName[s.name] = s; });
-    (L.services || []).forEach((ls) => { const ex = (ls._id != null && svcById[ls._id]) || svcByName[ls.name];
-      if (ex) { try { if (svcKey(ex) !== svcKey(ls)) { Object.assign(ex, ls); n++; } } catch (e) {} } });
-    // desk-owned settings — restore local values that differ
-    try { CFG_KEYS.forEach((key) => { if (L.settings && L.settings[key] !== undefined && JSON.stringify(L.settings[key]) !== JSON.stringify(db.settings[key])) { db.settings[key] = L.settings[key]; n++; } }); } catch (e) {}
+    (L.clients || []).forEach((lc) => {
+      if (isAyaYahya(lc.name)) return; const mine = clientKey(lc); if (mine === cbase[lc.id]) return;
+      const ex = byId[lc.id] || (lc.phone && byPhone[digitsP(lc.phone)]);
+      if (!ex) { if (cbase[lc.id] !== undefined) return; (db.clients = db.clients || []).push(lc); n++; return; }
+      if (cbase[lc.id] !== undefined && clientKey(ex) !== cbase[lc.id]) return;
+      if (clientKey(ex) !== mine) { Object.assign(ex, lc); n++; }
+    });
+    let sbase = []; try { sbase = JSON.parse(B.svcSnap || '[]'); } catch (e) {}
+    const inBase = new Set(sbase);
+    const svcById = {}; (db.services || []).forEach((x) => { if (x._id != null) svcById[x._id] = x; });
+    (L.services || []).forEach((ls) => { const k = svcKey(ls); if (inBase.has(k)) return; const ex = ls._id != null && svcById[ls._id]; if (!ex) return;
+      const baseRow = sbase.find((b) => { try { return JSON.parse(b)[0] === ls._id; } catch (e) { return false; } });
+      if (baseRow && svcKey(ex) !== baseRow) return; if (svcKey(ex) !== k) { Object.assign(ex, ls); n++; } });
+    let setBase = {}; try { setBase = JSON.parse(B.setSnap || '{}'); } catch (e) {}
+    try { CFG_KEYS.forEach((key) => { if (!L.settings || L.settings[key] === undefined) return; const mine = JSON.stringify(L.settings[key]); const was = JSON.stringify(setBase[key]);
+      if (mine === was) return; if (JSON.stringify(db.settings[key]) !== was) return; db.settings[key] = L.settings[key]; n++; }); } catch (e) {}
     if (n) { cache(); notify('recover'); if (online) { clearTimeout(saveT); saveT = setTimeout(syncUp, 300); } try { if (window.MgmtUI && MgmtUI.toast) MgmtUI.toast('Restoring ' + n + ' unsaved change' + (n > 1 ? 's' : '') + ' from this device…'); } catch (e) {} }
   };
   const reset = (mode) => {
@@ -577,7 +609,7 @@
     try { if (mode === 'blank') localStorage.setItem(BLANK, '1'); else localStorage.removeItem(BLANK); } catch (e) {}
     db = mode === 'blank' ? blank() : seed(); cache(); notify('reset');
   };
-  const clear = () => { db = online ? (function () { const b = blank(); b.online = true; b.blank = false; return b; })() : blank(); try { localStorage.removeItem(KEY); } catch (e) {} snap = {}; notify('reset'); };
+  const clear = () => { db = online ? emptyOnline() : blank(); try { localStorage.removeItem(KEY); localStorage.removeItem(BASE_KEY); } catch (e) {} snap = {}; notify('reset'); };
 
   const money = (n) => { const v = Math.abs(Math.round(n * 100) / 100); return (n < 0 ? '−' : '') + '$' + v.toLocaleString('en-US', { minimumFractionDigits: Number.isInteger(v) ? 0 : 2, maximumFractionDigits: 2 }); };
   const dt = (iso) => new Date(iso);
@@ -622,8 +654,8 @@
   // Gift balance a client can spend (active cards bought by them or addressed to their number)
   const giftPool = (c) => db.gifts.filter((g) => g.status === 'Active' && g.balance > 0 && (g.buyerId === c.id || digits(g.toPhone) === digits(c.phone)));
   const giftBalance = (c) => giftPool(c).reduce((a, g) => a + g.balance, 0);
-  const redeemGift = (c, amount, ref) => { let left = amount; const parts = []; giftPool(c).forEach((g) => { if (left <= 0) return; const r = Math.min(left, g.balance); g.balance -= r; left -= r; if (g.balance === 0) g.status = 'Used'; (g.uses = g.uses || []).push({ ref, amount: r, at: new Date().toISOString() }); parts.push({ code: g.code, amount: r }); }); return parts; };
-  const refundGift = (parts, ref) => { (parts || []).forEach((p) => { const g = db.gifts.find((x) => x.code === p.code); if (!g) return; g.balance += p.amount; if (g.status === 'Used') g.status = 'Active'; (g.uses = g.uses || []).push({ ref, amount: -p.amount, at: new Date().toISOString() }); }); };
+  const redeemGift = (c, amount, ref) => { let left = amount; const parts = []; giftPool(c).forEach((g) => { if (left <= 0) return; const r = Math.min(left, g.balance); g.balance -= r; left -= r; if (g.balance === 0) g.status = 'Used'; { const now = new Date().toISOString(); (g.redemptions = g.redemptions || []).push({ date: now, at: now, amount: r, ref, what: 'Desk' }); } parts.push({ code: g.code, amount: r }); }); return parts; };
+  const refundGift = (parts, ref) => { (parts || []).forEach((p) => { const g = db.gifts.find((x) => x.code === p.code); if (!g) return; g.balance += p.amount; if (g.status === 'Used') g.status = 'Active'; { const now = new Date().toISOString(); (g.redemptions = g.redemptions || []).push({ date: now, at: now, amount: -p.amount, ref, what: 'Refund' }); } }); };
   // A visit = one client, one time, one or more chairs back to back (one booking row per chair segment, sharing 'visit')
   const visitOf = (b) => b.visit ? db.bookings.filter((x) => x.visit === b.visit).sort((a, c) => a.start < c.start ? -1 : 1) : [b];
   // Collapse segment rows into one visit each (first live chair leads): { lead, segs, live, ref, start, end, mins, staff[], services[], products[], total, status, payStatus }
