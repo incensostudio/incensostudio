@@ -203,10 +203,10 @@
       const blob = await (await fetch(dataUrl)).blob();
       const path = 'uploads/' + Date.now() + '-' + Math.random().toString(16).slice(2) + '.jpg';
       const up = await SB.storage.from('studio').upload(path, blob, { contentType: 'image/jpeg', upsert: true });
-      if (up.error) { console.warn('[mgmt] upload', up.error.message); return dataUrl; }
+      if (up.error) { console.warn('[mgmt] upload', up.error.message); toast('Upload failed: ' + (up.error.message || 'unknown')); return dataUrl; }
       const { data } = SB.storage.from('studio').getPublicUrl(path);
       return (data && data.publicUrl) || dataUrl;
-    } catch (e) { console.warn('[mgmt] upload', e); return dataUrl; }
+    } catch (e) { console.warn('[mgmt] upload', e); toast('Upload error: ' + ((e && e.message) || e)); return dataUrl; }
   };
   const imagePicker = ({ value, label, shape, onChange, hint }) => {
     const w = el('<div class="field"><label>' + esc(label || 'Photo') + '</label><div class="imgpick ' + (shape || '') + '"><div class="imgpick-preview">' + (value ? '<img src="' + esc(value) + '" alt="">' : '<span>' + icon('image') + (hint || 'Tap to upload') + '</span>') + '</div><div class="imgpick-actions"><label class="btn sm soft">' + icon('upload') + (value ? 'Replace' : 'Upload') + '<input type="file" accept="image/*" hidden></label>' + (value ? '<button type="button" class="btn sm ghost" data-rm>Remove</button>' : '') + '</div></div></div>');
