@@ -324,8 +324,20 @@
   const settingsKeys = () => { const o = {}; CFG_KEYS.forEach((k) => { if (db.settings[k] !== undefined) o[k] = db.settings[k]; }); o.studio = { address: db.settings.address, city: db.settings.city, maps: db.settings.maps, wa: db.settings.wa, email: db.settings.email, instagram: db.settings.instagram, tiktok: db.settings.tiktok }; return o; };
   let svcSnap = '', catSnap = '', setSnap = '', galSnap = '', spcSnap = '', pgSnap = '';
 
-  let syncError = false, syncWarned = false, retryT = null;
-  const err = (label, e) => { if (e) { syncError = true; console.warn('[mgmt] ' + label, e.message || e); } };
+  let syncError = false, syncWarned = false, retryT = null; const permWarned = {};
+  // Transient failures (network, timeouts, 5xx) retry. Permanent ones (bad data, constraint, schema:
+  // SQLSTATE 22/23/42/P0) can never succeed on retry — retrying them forever made the whole app look
+  // broken. Surface those once, by name, and move on so everything else keeps syncing.
+  const err = (label, e) => {
+    if (!e) return;
+    const code = String(e.code || '');
+    console.warn('[mgmt] ' + label, code, e.message || e);
+    if (/^(22|23|42|P0)/.test(code)) {
+      if (!permWarned[label + code]) { permWarned[label + code] = 1; try { if (window.MgmtUI && MgmtUI.toast) MgmtUI.toast('Couldn’t save (' + label.replace(/^(upsert|delete) /, '') + '): ' + (e.message || code)); } catch (x) {} }
+      return;
+    }
+    syncError = true;
+  };
   const sel = async (t, cols) => { try { const { data, error } = await SB.from(t).select(cols || '*'); if (error) { err(t, error); return []; } return data || []; } catch (e) { err(t, e); return []; } };
 
   // ---------------- hydrate: pull everything into the app shapes ----------------
@@ -538,7 +550,13 @@
     Object.keys(SYNC).forEach((k) => {
       const cfgv = SYNC[k]; const cur = {}; (db[k] || []).forEach((r) => { const id = cfgv.pk(r); if (id != null) cur[id] = r; });
       (L[k] || []).forEach((lr) => { const id = cfgv.pk(lr); if (id == null) return; const ex = cur[id];
-        if (!ex) { (db[k] = db[k] || []).push(lr); n++; }
+        if (!ex) {
+          // A cached row can carry an old local id (e.g. 'p1790…') while the server already holds the same
+          // record under its real id. Re-adding it would create a duplicate — for products that trips the
+          // unique-name index and poisons every sync. Skip anything the server already has by its natural key.
+          if (k === 'products' && (db.products || []).some((p) => (p.name || '').trim().toLowerCase() === (lr.name || '').trim().toLowerCase())) return;
+          (db[k] = db[k] || []).push(lr); n++;
+        }
         else { try { if (JSON.stringify(cfgv.to(ex)) !== JSON.stringify(cfgv.to(lr))) { Object.assign(ex, lr); n++; } } catch (e) {} } });
     });
     // clients — match by id or phone; never bring back the deleted "Aya yahya"
