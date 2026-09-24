@@ -423,6 +423,37 @@ test('shop → cart → checkout through the real pages: photo shows in cart, or
   expect(/1 open/.test(txt) && txt.includes(P.guest.name) && /READY FOR PICKUP\s+1/i.test(txt), 'the order is listed as open / ready for pickup on the Orders screen', txt.slice(0, 900));
 });
 
+test('shop on a phone: swiping a product photo left/right changes photos; the page cannot be zoomed', async (H, P) => {
+  H.fake.seed('web_products', [{ name: 'Swipe Oil', price: 20, cat: 'hair', category: 'Hair', note: 'n', details: 'd', images: ['https://x/a.jpg', 'https://x/b.jpg', 'https://x/c.jpg'], image_url: 'https://x/a.jpg', active: true }]);
+  const w = await H.open('web', 'shop.html', null, { mobile: true }); await shopCards(w);
+  const cdp = await w.context().newCDPSession(w);
+  const box = await w.locator('#shelf article.product .photo').first().boundingBox();
+  const y = box.y + box.height / 2;
+  const swipe = async (x1, x2) => { await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: x1, y }] }); for (let i = 1; i <= 5; i++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x1 + (x2 - x1) * i / 5, y }] }); await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await w.waitForTimeout(350); };
+  const frame = () => w.evaluate(() => document.querySelector('#shelf .photo').dataset.frame);
+  await swipe(box.x + box.width * 0.8, box.x + box.width * 0.2); expect(await frame() === '1', 'swipe left shows photo 2', await frame());
+  await swipe(box.x + box.width * 0.8, box.x + box.width * 0.2); expect(await frame() === '2', 'swipe left again shows photo 3', await frame());
+  await swipe(box.x + box.width * 0.2, box.x + box.width * 0.8); expect(await frame() === '1', 'swipe right goes back to photo 2', await frame());
+  const qvOpen = await w.evaluate(() => document.querySelector('.qv') && document.querySelector('.qv').classList.contains('open'));
+  expect(!qvOpen, 'a swipe does not open the quick view');
+  const vp = await w.evaluate(() => [document.querySelector('meta[name=viewport]').content, getComputedStyle(document.documentElement).touchAction]);
+  expect(/user-scalable=no/.test(vp[0]) && /maximum-scale=1/.test(vp[0]) && vp[1] === 'manipulation', 'zoom is disabled (viewport + no double-tap zoom)', vp);
+  const arrows = await w.evaluate(() => [...document.querySelectorAll('#shelf .ph-nav')].filter((b) => getComputedStyle(b).display !== 'none').length);
+  expect(arrows === 0, 'no photo arrows on phones (swipe instead)', arrows);
+  const fit = await w.evaluate(() => getComputedStyle(document.querySelector('#shelf .photo .frame img')).objectFit);
+  expect(fit === 'contain', 'product photos show the whole image (not cropped)', fit);
+  const fs = await w.evaluate(() => getComputedStyle(document.querySelector('#newsForm [name=email]')).fontSize);
+  expect(fs === '16px', 'text boxes are 16px on phones so tapping them does not zoom', fs);
+});
+
+test('website image slots: a visitor cannot put their own image into an empty photo slot', async (H, P) => {
+  const w = await H.open('web', 'hair.html', null, { mobile: true }); await w.waitForTimeout(1200);
+  const info = await w.evaluate(() => { const slots = [...document.querySelectorAll('image-slot')]; const empty = slots.find((s) => s.shadowRoot && getComputedStyle(s.shadowRoot.querySelector('.empty')).display !== 'none' && !s.getAttribute('src')); return { n: slots.length, empty: !!empty, editable: slots.some((s) => s.hasAttribute('data-editable')) }; });
+  expect(info.n > 0 && !info.editable, 'slots on the live site are read-only', info);
+  const chooser = await Promise.race([w.waitForEvent('filechooser', { timeout: 1500 }).then(() => true).catch(() => false), w.evaluate(() => { const s = document.querySelector('image-slot'); s.shadowRoot.querySelector('.empty').click(); return new Promise((r) => setTimeout(() => r(false), 1400)); })]);
+  expect(chooser === false, 'tapping an empty slot does not open a file picker');
+});
+
 test('newsletter: a visitor signs up from the website footer (twice) and the number is saved once', async (H, P) => {
   const w = await H.open('web', 'shop.html', null); await w.waitForTimeout(800);
   const sign = async () => { await w.evaluate(() => { const f = document.getElementById('newsForm'); f.scrollIntoView(); }); await w.fill('#newsForm [name=email]', '70123123'); await w.evaluate(() => document.getElementById('newsForm').requestSubmit()); await w.waitForTimeout(900); };
