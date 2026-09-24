@@ -436,12 +436,17 @@ test('shop on a phone: swiping a product photo left/right changes photos; the pa
   await swipe(box.x + box.width * 0.2, box.x + box.width * 0.8); expect(await frame() === '1', 'swipe right goes back to photo 2', await frame());
   const qvOpen = await w.evaluate(() => document.querySelector('.qv') && document.querySelector('.qv').classList.contains('open'));
   expect(!qvOpen, 'a swipe does not open the quick view');
+  await w.locator('#shelf article.product .photo').first().tap(); await w.waitForTimeout(700);
+  const qv = await w.evaluate(() => { const p = document.querySelector('.qv-photo').getBoundingClientRect(); const n = document.querySelector('.qv-name').getBoundingClientRect(); return { w: p.width, h: p.height, bottom: p.bottom, nameTop: n.top, arrows: [...document.querySelectorAll('.qv-photo .ph-nav')].filter((b) => getComputedStyle(b).display !== 'none').length }; });
+  expect(Math.abs(qv.w - qv.h) < 2 && qv.nameTop >= qv.bottom && qv.arrows === 0, 'product pop-up: square photo, title fully below it, no arrows', qv);
   const vp = await w.evaluate(() => [document.querySelector('meta[name=viewport]').content, getComputedStyle(document.documentElement).touchAction]);
   expect(/user-scalable=no/.test(vp[0]) && /maximum-scale=1/.test(vp[0]) && vp[1] === 'manipulation', 'zoom is disabled (viewport + no double-tap zoom)', vp);
   const arrows = await w.evaluate(() => [...document.querySelectorAll('#shelf .ph-nav')].filter((b) => getComputedStyle(b).display !== 'none').length);
   expect(arrows === 0, 'no photo arrows on phones (swipe instead)', arrows);
   const fit = await w.evaluate(() => getComputedStyle(document.querySelector('#shelf .photo .frame img')).objectFit);
-  expect(fit === 'contain', 'product photos show the whole image (not cropped)', fit);
+  expect(fit === 'cover', 'product photos fill their frame (no empty bands)', fit);
+  const sq = await w.evaluate(() => { const r = document.querySelector('#shelf .photo').getBoundingClientRect(); return Math.abs(r.width - r.height) < 2; });
+  expect(sq, 'product frames are square, matching the square photos the desk asks for');
   const fs = await w.evaluate(() => getComputedStyle(document.querySelector('#newsForm [name=email]')).fontSize);
   expect(fs === '16px', 'text boxes are 16px on phones so tapping them does not zoom', fs);
 });
