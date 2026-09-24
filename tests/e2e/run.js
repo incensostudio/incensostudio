@@ -261,7 +261,7 @@ test('orders: a website order reaches the desk; the desk marks it collected → 
   const g = await H.open('web', 'checkout.html', P.guest); await g.waitForTimeout(1200);
   const ref = await g.evaluate(async () => {
     const A = window.IncensoAuth; const acc = A.get(); const ref = await A.nextRef('OR');
-    const order = { ref, date: new Date().toISOString().slice(0, 10), time: '3:00 PM', items: [{ name: 'Studio Candle', qty: 1, price: 30 }], total: 30, status: 'Ready for pickup', payStatus: 'due', gift: null, toPay: 30, placedAt: Date.now(), payDeadline: null, method: 'Studio pickup', pay: 'Pay at studio', name: acc.name, phone: acc.phone, email: '', address: '', discount: 0, tier: 'Member' };
+    const order = { ref, date: new Date().toISOString().slice(0, 10), time: '3:00 PM', items: [{ name: 'Studio Candle', q: 1, price: 30 }], total: 30, status: 'Ready for pickup', payStatus: 'due', gift: null, toPay: 30, placedAt: Date.now(), payDeadline: null, method: 'Studio pickup', pay: 'Pay at studio', name: acc.name, phone: acc.phone, email: '', address: '', discount: 0, tier: 'Member' };
     acc.orders = [order].concat(acc.orders || []); A.set(acc); await new Promise((r) => setTimeout(r, 1500)); return ref;
   });
   const r = rows(H, 'orders').find((o) => o.ref === ref);
@@ -273,6 +273,7 @@ test('orders: a website order reaches the desk; the desk marks it collected → 
   await M(d, (ref) => { const M = window.IncensoMgmt; const o = M.db.orders.find((x) => x.ref === ref); o.status = 'collected'; o.payStatus = 'paid'; M.save(); }, ref);
   await H.settle(d); await noSaveErrors(H, d);
   const r2 = rows(H, 'orders').find((o) => o.ref === ref); expect(r2.status === 'Collected' && r2.pay_status === 'paid' && r2.method === 'Studio pickup' && r2.pay === 'Pay at studio', 'saved in the website’s words: Collected, paid, still a studio pickup', { status: r2.status, pay_status: r2.pay_status, method: r2.method, pay: r2.pay });
+  expect(r2.items.length === 1 && r2.items[0].q === 1 && r2.items[0].name === 'Studio Candle' && r2.items[0].qty === undefined && typeof r2.address === 'object', 'order lines and address keep the website’s format', { items: r2.items, address: r2.address });
   await g.reload(); await g.waitForTimeout(1500);
   const st = await g.evaluate((ref) => (window.IncensoAuth.get().orders || []).find((o) => o.ref === ref), ref);
   expect(st && /collect/i.test(st.status), 'customer sees it collected', st && st.status);
@@ -412,6 +413,12 @@ test('shop → cart → checkout through the real pages: photo shows in cart, or
   const d = await H.desk(P.owner, 'orders');
   const seen = await M(d, (ref) => !!window.IncensoMgmt.db.orders.find((o) => o.ref === ref), r[0].ref);
   expect(seen, 'the order shows in management');
+  await d.goto(H.MG + '/index.html#/order/' + r[0].ref); await d.waitForTimeout(800);
+  const page = await d.evaluate(() => ({ text: document.querySelector('#view').innerText, imgs: [...document.querySelectorAll('#view img')].map((i) => i.getAttribute('src')) }));
+  expect(!/undefined|NaN|\[object Object\]/.test(page.text), 'the order page shows no undefined / NaN / [object Object]', page.text.slice(0, 600));
+  expect(/1 × \$65|× \$65/.test(page.text) && /\$65/.test(page.text), 'the order page shows quantity and price', page.text.slice(0, 600));
+  expect(page.imgs.some((x) => /x\/s1/.test(x || '')), 'the order page shows the product photo', page.imgs);
+  await d.goto(H.MG + '/index.html#/orders'); await d.waitForTimeout(800);
   const txt = await d.evaluate(() => document.body.innerText);
   expect(/1 open/.test(txt) && txt.includes(P.guest.name) && /READY FOR PICKUP\s+1/i.test(txt), 'the order is listed as open / ready for pickup on the Orders screen', txt.slice(0, 900));
 });

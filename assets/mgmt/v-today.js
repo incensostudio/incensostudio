@@ -216,7 +216,10 @@
     draw();
     const foot = el('<div style="display:flex;gap:8px;width:100%"><button class="btn" data-o>Close visit</button></div>');
     const sh = U.sheet({ title: 'Settle visit', sub: esc(c.name) + (L.length > 1 ? ' · ' + L.length + ' chairs' : ''), body, foot, back: () => M.openBooking(b.ref), onClose: () => M.openBooking(b.ref) });
-    foot.querySelector('[data-o]').onclick = () => {
+    foot.querySelector('[data-o]').onclick = async () => {
+      // A tip bigger than the bill is almost always the cash handed over typed in the wrong box.
+      const tipSum = Object.values(st.tips).reduce((a, v) => a + (v || 0), 0);
+      if (tipSum > 0 && tipSum >= total() && !(await U.confirm({ title: 'Tip of ' + M.money(tipSum) + '?', text: 'That is more than the whole bill (' + M.money(total()) + '). Tips go to the stylist in Finances. If this is the cash the client handed over, clear the tip.', ok: 'Yes, it’s a tip' }))) return;
       const now = new Date().toISOString(); const finalTotal = total(); const extra = st.extra || 0; const gross = svcGross();
       let extraLeft = extra;
       L.forEach((x, idx) => {
